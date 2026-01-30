@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aviation Operations Dashboard</title>
+    <meta name="description" content="Real-time crew management and flight operations dashboard">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">✈️</span>
+                <h1>Aviation Operations Dashboard</h1>
+            </div>
+        </div>
+        <div class="header-center">
+            <div class="date-filter">
+                <label for="filter-date">Ngày:</label>
+                <input type="date" id="filter-date" class="date-input">
+                <button id="refresh-btn" class="btn btn-primary">
+                    <span class="icon">🔄</span> Refresh
+                </button>
+            </div>
+        </div>
+        <div class="header-right">
+            <div class="data-source-toggle">
+                <span class="label">Data Source:</span>
+                <div class="toggle-group">
+                    <button id="btn-aims" class="toggle-btn active">AIMS</button>
+                    <button id="btn-csv" class="toggle-btn">CSV</button>
+                </div>
+            </div>
+            <div class="sync-status" id="sync-status">
+                <span class="status-dot online"></span>
+                <span class="status-text">Connected</span>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- KPI Cards Row -->
+        <section class="kpi-section">
+            <div class="kpi-grid">
+                <!-- Total Crew -->
+                <div class="kpi-card">
+                    <div class="kpi-icon crew-icon">👥</div>
+                    <div class="kpi-content">
+                        <span class="kpi-label">Total Crew</span>
+                        <span class="kpi-value" id="total-crew">--</span>
+                    </div>
+                </div>
+                
+                <!-- Standby Available -->
+                <div class="kpi-card">
+                    <div class="kpi-icon standby-icon">📋</div>
+                    <div class="kpi-content">
+                        <span class="kpi-label">Standby Available</span>
+                        <span class="kpi-value" id="standby-count">--</span>
+                    </div>
+                </div>
+                
+                <!-- Sick Leave -->
+                <div class="kpi-card warning">
+                    <div class="kpi-icon sick-icon">🏥</div>
+                    <div class="kpi-content">
+                        <span class="kpi-label">Sick Leave</span>
+                        <span class="kpi-value" id="sick-count">--</span>
+                    </div>
+                </div>
+                
+                <!-- Active Flights -->
+                <div class="kpi-card">
+                    <div class="kpi-icon flight-icon">🛫</div>
+                    <div class="kpi-content">
+                        <span class="kpi-label">Active Flights</span>
+                        <span class="kpi-value" id="active-flights">--</span>
+                    </div>
+                </div>
+                
+                <!-- Aircraft Utilization -->
+                <div class="kpi-card">
+                    <div class="kpi-icon util-icon">⏱️</div>
+                    <div class="kpi-content">
+                        <span class="kpi-label">A/C Utilization</span>
+                        <span class="kpi-value" id="ac-utilization">--</span>
+                        <span class="kpi-unit">hrs/ac</span>
+                    </div>
+                </div>
+                
+                <!-- Total Block Hours -->
+                <div class="kpi-card">
+                    <div class="kpi-icon hours-icon">📊</div>
+                    <div class="kpi-content">
+                        <span class="kpi-label">Total Block Hours</span>
+                        <span class="kpi-value" id="total-block-hours">--</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Alerts Section -->
+        <section class="alerts-section" id="alerts-section" style="display: none;">
+            <div class="section-header">
+                <h2>⚠️ Active Alerts</h2>
+                <span class="badge badge-warning" id="alerts-count">0</span>
+            </div>
+            <div class="alerts-container" id="alerts-list">
+                <!-- Alert items populated by JS -->
+            </div>
+        </section>
+
+        <!-- Main Grid -->
+        <div class="dashboard-grid">
+            <!-- Crew Status Panel -->
+            <section class="panel crew-status-panel">
+                <div class="panel-header">
+                    <h2>Crew Status</h2>
+                    <div class="panel-actions">
+                        <select id="base-filter" class="select-input">
+                            <option value="">All Bases</option>
+                            <option value="SGN">SGN</option>
+                            <option value="HAN">HAN</option>
+                            <option value="DAD">DAD</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="status-grid" id="crew-status-grid">
+                    <div class="status-card status-fly">
+                        <div class="status-value" id="status-fly">0</div>
+                        <div class="status-label">Flying</div>
+                    </div>
+                    <div class="status-card status-sby">
+                        <div class="status-value" id="status-sby">0</div>
+                        <div class="status-label">Standby</div>
+                    </div>
+                    <div class="status-card status-sl">
+                        <div class="status-value" id="status-sl">0</div>
+                        <div class="status-label">Sick Leave</div>
+                    </div>
+                    <div class="status-card status-csl">
+                        <div class="status-value" id="status-csl">0</div>
+                        <div class="status-label">Call Sick</div>
+                    </div>
+                    <div class="status-card status-off">
+                        <div class="status-value" id="status-off">0</div>
+                        <div class="status-label">Day Off</div>
+                    </div>
+                    <div class="status-card status-trn">
+                        <div class="status-value" id="status-trn">0</div>
+                        <div class="status-label">Training</div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Standby List Panel -->
+            <section class="panel standby-panel">
+                <div class="panel-header">
+                    <h2>Operational Agility</h2>
+                </div>
+                <div class="standby-stats">
+                    <div class="standby-stat">
+                        <span class="stat-label">SBY</span>
+                        <span class="stat-value" id="sby-available">0</span>
+                    </div>
+                    <div class="standby-stat warning">
+                        <span class="stat-label">SL</span>
+                        <span class="stat-value" id="sl-count">0</span>
+                    </div>
+                    <div class="standby-stat critical">
+                        <span class="stat-label">CSL</span>
+                        <span class="stat-value" id="csl-count">0</span>
+                    </div>
+                </div>
+                <div class="standby-list" id="standby-list">
+                    <!-- Standby items populated by JS -->
+                    <div class="empty-state">No standby data</div>
+                </div>
+            </section>
+
+            <!-- FTL Compliance Panel -->
+            <section class="panel ftl-panel">
+                <div class="panel-header">
+                    <h2>Safety & Compliance</h2>
+                    <span class="badge badge-success" id="compliance-rate">100%</span>
+                </div>
+                <div class="ftl-summary">
+                    <div class="ftl-stat normal">
+                        <span class="stat-value" id="ftl-normal">0</span>
+                        <span class="stat-label">Normal</span>
+                    </div>
+                    <div class="ftl-stat warning">
+                        <span class="stat-value" id="ftl-warning">0</span>
+                        <span class="stat-label">Warning</span>
+                    </div>
+                    <div class="ftl-stat critical">
+                        <span class="stat-value" id="ftl-critical">0</span>
+                        <span class="stat-label">Critical</span>
+                    </div>
+                </div>
+                <div class="compliance-gauge">
+                    <div class="gauge-fill" id="gauge-fill" style="width: 100%"></div>
+                </div>
+            </section>
+        </div>
+
+        <!-- Tables Section -->
+        <div class="tables-grid">
+            <!-- Crew Table -->
+            <section class="panel table-panel">
+                <div class="panel-header">
+                    <h2>Crew List</h2>
+                    <div class="panel-actions">
+                        <input type="text" id="crew-search" class="search-input" placeholder="Search crew...">
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="crew-table">
+                        <thead>
+                            <tr>
+                                <th>ID</th>
+                                <th>Name</th>
+                                <th>Base</th>
+                                <th>Position</th>
+                                <th>Status</th>
+                                <th>28-Day Hrs</th>
+                                <th>FTL Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="crew-tbody">
+                            <tr class="empty-row">
+                                <td colspan="7">Loading crew data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- Flights Table -->
+            <section class="panel table-panel">
+                <div class="panel-header">
+                    <h2>Today's Flights</h2>
+                    <div class="panel-actions">
+                        <select id="aircraft-filter" class="select-input">
+                            <option value="">All Aircraft</option>
+                            <option value="A320">A320</option>
+                            <option value="A321">A321</option>
+                            <option value="330">A330</option>
+                            <option value="787">B787</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table" id="flights-table">
+                        <thead>
+                            <tr>
+                                <th>Flight</th>
+                                <th>Route</th>
+                                <th>STD</th>
+                                <th>STA</th>
+                                <th>A/C Type</th>
+                                <th>A/C Reg</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="flights-tbody">
+                            <tr class="empty-row">
+                                <td colspan="7">Loading flight data...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </div>
+
+        <!-- FTL Tables Section -->
+        <section class="panel ftl-tables-panel">
+            <div class="panel-header">
+                <h2>Flight Hour Limits - Top 20 High Intensity</h2>
+            </div>
+            <div class="ftl-tables-grid">
+                <!-- 28-Day Table -->
+                <div class="ftl-table-container">
+                    <h3>28-Day Rolling</h3>
+                    <table class="data-table ftl-table" id="ftl-28d-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Crew</th>
+                                <th>Hours</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ftl-28d-tbody">
+                            <tr class="empty-row">
+                                <td colspan="4">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- 12-Month Table -->
+                <div class="ftl-table-container">
+                    <h3>12-Month Rolling</h3>
+                    <table class="data-table ftl-table" id="ftl-12m-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Crew</th>
+                                <th>Hours</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ftl-12m-tbody">
+                            <tr class="empty-row">
+                                <td colspan="4">Loading...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-left">
+            <span>Aviation Operations Dashboard v1.0</span>
+        </div>
+        <div class="footer-center">
+            <span id="last-sync">Last sync: --</span>
+        </div>
+        <div class="footer-right">
+            <span id="data-source-label">Source: AIMS</span>
+        </div>
+    </footer>
+
+    <!-- Upload Modal -->
+    <div class="modal" id="upload-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Upload CSV Data</h3>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="upload-zone" id="upload-zone">
+                    <input type="file" id="csv-file" accept=".csv" hidden>
+                    <div class="upload-icon">📁</div>
+                    <p>Drag & drop CSV file here or click to browse</p>
+                    <span class="upload-hint">Supported: RolCrTot, DayRep, Standby reports</span>
+                </div>
+                <div class="upload-options">
+                    <label>File Type:</label>
+                    <select id="upload-type" class="select-input">
+                        <option value="crew_hours">Crew Hours (RolCrTot)</option>
+                        <option value="flights">Flights (DayRep)</option>
+                        <option value="standby">Standby</option>
+                    </select>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" id="cancel-upload">Cancel</button>
+                <button class="btn btn-primary" id="submit-upload">Upload</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container" id="toast-container"></div>
+
+    <!-- Scripts -->
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

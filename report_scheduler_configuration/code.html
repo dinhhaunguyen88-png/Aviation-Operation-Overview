@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Report Scheduler Configuration - AIMS</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#13ecc1",
+                        "background-light": "#f6f8f8",
+                        "background-dark": "#10221e",
+                        "navy-modal": "#2C3E50",
+                    },
+                    fontFamily: {
+                        "display": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>.material-symbols-outlined {
+    font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 24
+    }
+.form-select-icon {
+    background-image: url(https://lh3.googleusercontent.com/aida-public/AB6AXuDlGsYTL9AzrwD2_BItt4cE-5AV6Qm1mDh11tRSsmA0ElKvYVLnVYpz6GEPmj5U30rtPO9OVwEQVknvXx8c8lPWbm-29722vaHL3zOfbjLAZac1NtKhRP7iqMissRz2wvtAZJVltxkFFLtnghhEv9xom1wp2Ea5ZJFKzo8BPJDBx4p_JPdl2PTmrI9V5psJ1vqzeBU0dK974gbp5LlTHn-xd7XBjxe7Cq3Y9hypRctOgXpsrexbbdGk1XOBVp2H8x4qF2AA_6FF5pO3);
+    background-repeat: no-repeat;
+    background-position: right 1rem center
+    }</style>
+</head>
+<body class="bg-background-light dark:bg-background-dark font-display text-white min-h-screen relative overflow-x-hidden">
+<!-- Background Layer (Crew Pairing Screen) -->
+<div class="fixed inset-0 z-0 opacity-40 grayscale pointer-events-none">
+<div class="layout-container flex h-full grow flex-col">
+<div class="px-10 lg:px-40 flex flex-1 justify-center py-5">
+<div class="layout-content-container flex flex-col max-w-[960px] flex-1">
+<header class="flex items-center justify-between border-b border-solid border-white/10 px-10 py-3">
+<div class="flex items-center gap-4">
+<span class="material-symbols-outlined text-primary">rocket_launch</span>
+<h2 class="text-white text-lg font-bold">AIMS Data Analysis</h2>
+</div>
+</header>
+<div class="p-4">
+<h1 class="text-white text-4xl font-black mb-4">Crew Pairing Analysis</h1>
+<div class="grid grid-cols-3 gap-4">
+<div class="h-32 bg-white/5 rounded-lg"></div>
+<div class="h-32 bg-white/5 rounded-lg"></div>
+<div class="h-32 bg-white/5 rounded-lg"></div>
+</div>
+<div class="mt-8 h-64 bg-white/5 rounded-lg w-full"></div>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Modal Backdrop -->
+<div class="fixed inset-0 bg-black/70 backdrop-blur-sm z-40 flex items-center justify-center p-4">
+<!-- Modal Container -->
+<div class="bg-navy-modal w-full max-w-2xl rounded-xl shadow-2xl border border-white/10 flex flex-col overflow-hidden max-h-[90vh]">
+<!-- Modal Header -->
+<div class="px-8 pt-8 pb-4">
+<div class="flex justify-between items-start">
+<div>
+<h2 class="text-white text-2xl font-bold tracking-tight">Report Scheduler</h2>
+<p class="text-[#9db9b3] text-sm mt-1">Configure automated operational reporting for your fleet.</p>
+</div>
+<button class="text-white/50 hover:text-white transition-colors">
+<span class="material-symbols-outlined">close</span>
+</button>
+</div>
+</div>
+<!-- Modal Content (Scrollable) -->
+<div class="px-8 py-4 overflow-y-auto space-y-8">
+<!-- Section 1: Report Type -->
+<section>
+<label class="block mb-3">
+<span class="text-white text-sm font-semibold uppercase tracking-wider opacity-70">1. Report Selection</span>
+</label>
+<div class="relative">
+<select class="form-input w-full appearance-none rounded-lg text-white border-none bg-white/10 focus:ring-2 focus:ring-primary h-14 px-4 text-base font-normal leading-normal form-select-icon">
+<option class="bg-navy-modal" value="daily-ops">Daily Operations Summary</option>
+<option class="bg-navy-modal" value="swap-analysis">Swap Analysis &amp; Metrics</option>
+<option class="bg-navy-modal" selected="" value="crew-util">Crew Utilization Efficiency</option>
+<option class="bg-navy-modal" value="fatigue-risk">Fatigue Risk Management</option>
+</select>
+</div>
+</section>
+<!-- Section 2: Frequency -->
+<section>
+<label class="block mb-3">
+<span class="text-white text-sm font-semibold uppercase tracking-wider opacity-70">2. Frequency</span>
+</label>
+<div class="flex bg-white/5 p-1 rounded-xl">
+<button class="flex-1 py-2 text-sm font-medium rounded-lg text-white hover:bg-white/5 transition-all">Daily</button>
+<button class="flex-1 py-2 text-sm font-medium rounded-lg bg-primary text-background-dark shadow-lg transition-all">Weekly</button>
+<button class="flex-1 py-2 text-sm font-medium rounded-lg text-white hover:bg-white/5 transition-all">Monthly</button>
+</div>
+</section>
+<!-- Section 3: Schedule Settings -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<div>
+<label class="block mb-3 text-white text-sm font-semibold uppercase tracking-wider opacity-70">3. Time of Day</label>
+<div class="flex items-center gap-3 bg-white/10 rounded-lg px-4 h-14">
+<span class="material-symbols-outlined text-primary">schedule</span>
+<input class="bg-transparent border-none text-white focus:ring-0 w-full text-lg" type="time" value="08:00"/>
+</div>
+</div>
+<div>
+<label class="block mb-3 text-white text-sm font-semibold uppercase tracking-wider opacity-70">Active Days</label>
+<div class="flex gap-2">
+<button class="size-9 rounded-full bg-primary text-background-dark text-xs font-bold flex items-center justify-center">M</button>
+<button class="size-9 rounded-full bg-primary text-background-dark text-xs font-bold flex items-center justify-center">T</button>
+<button class="size-9 rounded-full bg-primary text-background-dark text-xs font-bold flex items-center justify-center">W</button>
+<button class="size-9 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center border border-white/5">T</button>
+<button class="size-9 rounded-full bg-primary text-background-dark text-xs font-bold flex items-center justify-center">F</button>
+<button class="size-9 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center border border-white/5">S</button>
+<button class="size-9 rounded-full bg-white/10 text-white text-xs font-bold flex items-center justify-center border border-white/5">S</button>
+</div>
+</div>
+</section>
+<!-- Section 4: Recipients -->
+<section>
+<label class="block mb-3">
+<span class="text-white text-sm font-semibold uppercase tracking-wider opacity-70">4. Recipients</span>
+</label>
+<div class="bg-white/10 border border-white/5 rounded-lg p-3 min-h-[80px] flex flex-wrap gap-2 items-start">
+<div class="flex items-center gap-1.5 bg-primary/20 border border-primary/30 text-primary px-2.5 py-1.5 rounded-lg text-sm font-medium">
+<span>ops-lead@aims-aviation.com</span>
+<span class="material-symbols-outlined text-xs cursor-pointer hover:text-white">close</span>
+</div>
+<div class="flex items-center gap-1.5 bg-primary/20 border border-primary/30 text-primary px-2.5 py-1.5 rounded-lg text-sm font-medium">
+<span>scheduling@hq.org</span>
+<span class="material-symbols-outlined text-xs cursor-pointer hover:text-white">close</span>
+</div>
+<input class="bg-transparent border-none text-white focus:ring-0 text-sm flex-1 min-w-[150px] py-1.5" placeholder="Add email..." type="text"/>
+</div>
+</section>
+<!-- Section 5: Format -->
+<section>
+<label class="block mb-3">
+<span class="text-white text-sm font-semibold uppercase tracking-wider opacity-70">5. Export Format</span>
+</label>
+<div class="grid grid-cols-3 gap-4">
+<label class="cursor-pointer group">
+<input checked="" class="hidden peer" name="format" type="radio"/>
+<div class="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/10 rounded-xl group-hover:bg-white/10 transition-all peer-checked:border-primary peer-checked:bg-primary/10">
+<span class="material-symbols-outlined text-3xl mb-1 text-[#9db9b3] group-hover:text-primary transition-colors">picture_as_pdf</span>
+<span class="text-sm font-medium">PDF</span>
+</div>
+</label>
+<label class="cursor-pointer group">
+<input class="hidden peer" name="format" type="radio"/>
+<div class="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/10 rounded-xl group-hover:bg-white/10 transition-all peer-checked:border-primary peer-checked:bg-primary/10">
+<span class="material-symbols-outlined text-3xl mb-1 text-[#9db9b3] group-hover:text-primary transition-colors">table_view</span>
+<span class="text-sm font-medium">Excel</span>
+</div>
+</label>
+<label class="cursor-pointer group">
+<input class="hidden peer" name="format" type="radio"/>
+<div class="flex flex-col items-center justify-center p-4 bg-white/5 border border-white/10 rounded-xl group-hover:bg-white/10 transition-all peer-checked:border-primary peer-checked:bg-primary/10">
+<span class="material-symbols-outlined text-3xl mb-1 text-[#9db9b3] group-hover:text-primary transition-colors">csv</span>
+<span class="text-sm font-medium">CSV</span>
+</div>
+</label>
+</div>
+</section>
+</div>
+<!-- Modal Footer -->
+<div class="px-8 py-6 bg-black/20 border-t border-white/5 flex justify-end gap-3 mt-auto">
+<button class="px-6 py-2.5 rounded-lg text-white font-semibold hover:bg-white/5 transition-all text-sm border border-white/10">
+                    Cancel
+                </button>
+<button class="px-8 py-2.5 rounded-lg bg-primary text-background-dark font-bold hover:brightness-110 shadow-lg shadow-primary/20 transition-all text-sm">
+                    Schedule Report
+                </button>
+</div>
+</div>
+</div>
+</body></html>

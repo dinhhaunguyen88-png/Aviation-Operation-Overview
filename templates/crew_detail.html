@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Crew Detail - Aviation Operations Dashboard</title>
+    <meta name="description" content="Detailed crew information, roster, and flight hours">
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="stylesheet" href="/static/css/crew_detail.css">
+</head>
+
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="header-left">
+            <a href="/" class="back-btn">
+                <span class="back-icon">←</span>
+                <span>Dashboard</span>
+            </a>
+            <h1 class="header-title">Crew Detail</h1>
+        </div>
+        <div class="header-right">
+            <span class="crew-id-badge" id="crewIdBadge">Loading...</span>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <!-- Crew Profile Card -->
+        <section class="profile-section">
+            <div class="profile-card glass-card">
+                <div class="profile-avatar">
+                    <span class="avatar-text" id="avatarText">--</span>
+                </div>
+                <div class="profile-info">
+                    <h2 class="profile-name" id="crewName">Loading...</h2>
+                    <p class="profile-position" id="crewPosition">--</p>
+                    <div class="profile-badges">
+                        <span class="badge badge-base" id="crewBase">--</span>
+                        <span class="badge badge-status" id="crewStatus">--</span>
+                    </div>
+                </div>
+                <div class="profile-stats">
+                    <div class="stat-item">
+                        <span class="stat-value" id="hours28d">--</span>
+                        <span class="stat-label">28-Day Hours</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value" id="hours12m">--</span>
+                        <span class="stat-label">12-Month Hours</span>
+                    </div>
+                    <div class="stat-item">
+                        <span class="stat-value warning-level" id="warningLevel">--</span>
+                        <span class="stat-label">FTL Status</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Contact & Personal Info -->
+        <section class="info-section">
+            <div class="info-grid">
+                <!-- Personal Info -->
+                <div class="info-card glass-card">
+                    <h3 class="card-title">Personal Information</h3>
+                    <div class="info-list">
+                        <div class="info-row">
+                            <span class="info-label">Crew ID</span>
+                            <span class="info-value" id="infoCrewId">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Gender</span>
+                            <span class="info-value" id="infoGender">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Rank</span>
+                            <span class="info-value" id="infoRank">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Seniority Date</span>
+                            <span class="info-value" id="infoSeniority">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Contact Info -->
+                <div class="info-card glass-card">
+                    <h3 class="card-title">Contact Information</h3>
+                    <div class="info-list">
+                        <div class="info-row">
+                            <span class="info-label">Email</span>
+                            <span class="info-value" id="infoEmail">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Phone</span>
+                            <span class="info-value" id="infoPhone">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Cell Phone</span>
+                            <span class="info-value" id="infoCellPhone">--</span>
+                        </div>
+                        <div class="info-row">
+                            <span class="info-label">Address</span>
+                            <span class="info-value" id="infoAddress">--</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FTL Summary -->
+                <div class="info-card glass-card ftl-card">
+                    <h3 class="card-title">Flight Time Limits</h3>
+                    <div class="ftl-gauges">
+                        <div class="gauge-container">
+                            <div class="gauge" id="gauge28d">
+                                <svg viewBox="0 0 100 100">
+                                    <circle cx="50" cy="50" r="45" class="gauge-bg" />
+                                    <circle cx="50" cy="50" r="45" class="gauge-fill" id="gauge28dFill" />
+                                </svg>
+                                <div class="gauge-text">
+                                    <span class="gauge-value" id="gauge28dValue">0%</span>
+                                </div>
+                            </div>
+                            <span class="gauge-label">28-Day Limit</span>
+                        </div>
+                        <div class="gauge-container">
+                            <div class="gauge" id="gauge12m">
+                                <svg viewBox="0 0 100 100">
+                                    <circle cx="50" cy="50" r="45" class="gauge-bg" />
+                                    <circle cx="50" cy="50" r="45" class="gauge-fill" id="gauge12mFill" />
+                                </svg>
+                                <div class="gauge-text">
+                                    <span class="gauge-value" id="gauge12mValue">0%</span>
+                                </div>
+                            </div>
+                            <span class="gauge-label">12-Month Limit</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Roster Calendar -->
+        <section class="roster-section">
+            <div class="section-header">
+                <h3 class="section-title">Roster Calendar</h3>
+                <div class="date-navigation">
+                    <button class="nav-btn" id="prevMonth">←</button>
+                    <span class="current-month" id="currentMonth">January 2026</span>
+                    <button class="nav-btn" id="nextMonth">→</button>
+                </div>
+            </div>
+            <div class="roster-calendar glass-card" id="rosterCalendar">
+                <div class="calendar-header">
+                    <span>Mon</span>
+                    <span>Tue</span>
+                    <span>Wed</span>
+                    <span>Thu</span>
+                    <span>Fri</span>
+                    <span>Sat</span>
+                    <span>Sun</span>
+                </div>
+                <div class="calendar-grid" id="calendarGrid">
+                    <!-- Days will be rendered here -->
+                </div>
+            </div>
+            <div class="roster-legend">
+                <span class="legend-item"><span class="legend-color fly"></span>Flying</span>
+                <span class="legend-item"><span class="legend-color sby"></span>Standby</span>
+                <span class="legend-item"><span class="legend-color off"></span>Off Duty</span>
+                <span class="legend-item"><span class="legend-color sl"></span>Sick Leave</span>
+                <span class="legend-item"><span class="legend-color trn"></span>Training</span>
+            </div>
+        </section>
+
+        <!-- Flight Hours Chart -->
+        <section class="chart-section">
+            <div class="section-header">
+                <h3 class="section-title">Flight Hours Trend</h3>
+                <div class="chart-range">
+                    <button class="range-btn active" data-range="7">7 Days</button>
+                    <button class="range-btn" data-range="30">30 Days</button>
+                    <button class="range-btn" data-range="90">90 Days</button>
+                </div>
+            </div>
+            <div class="chart-card glass-card">
+                <div class="chart-container" id="flightHoursChart">
+                    <div class="chart-bars" id="chartBars">
+                        <!-- Chart bars will be rendered here -->
+                    </div>
+                    <div class="chart-labels" id="chartLabels">
+                        <!-- Labels will be rendered here -->
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Recent Flights -->
+        <section class="flights-section">
+            <div class="section-header">
+                <h3 class="section-title">Recent Flights</h3>
+            </div>
+            <div class="flights-table glass-card">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Flight</th>
+                            <th>Route</th>
+                            <th>STD-STA</th>
+                            <th>Aircraft</th>
+                            <th>Position</th>
+                        </tr>
+                    </thead>
+                    <tbody id="flightsTableBody">
+                        <tr>
+                            <td colspan="6" class="loading-cell">Loading...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- Qualifications -->
+        <section class="quals-section">
+            <div class="section-header">
+                <h3 class="section-title">Qualifications & Certifications</h3>
+            </div>
+            <div class="quals-grid" id="qualsGrid">
+                <div class="qual-card glass-card loading">
+                    <span>Loading qualifications...</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <span>Aviation Operations Dashboard v1.0</span>
+        <span id="lastUpdate">Last updated: --</span>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="/static/js/crew_detail.js"></script>
+</body>
+
+</html>

@@ -1,0 +1,733 @@
+/**
+ * Crew Detail Page Styles
+ * Aviation Operations Dashboard
+ */
+
+/* =====================================================
+   Page Layout
+   ===================================================== */
+
+.main-content {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+}
+
+/* =====================================================
+   Header Modifications
+   ===================================================== */
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+}
+
+.back-btn {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: 0.9rem;
+    padding: 0.5rem 1rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 8px;
+    transition: all 0.3s ease;
+}
+
+.back-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text-primary);
+}
+
+.back-icon {
+    font-size: 1.2rem;
+}
+
+.crew-id-badge {
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    color: white;
+    padding: 0.5rem 1rem;
+    border-radius: 20px;
+    font-weight: 600;
+    font-size: 0.9rem;
+}
+
+/* =====================================================
+   Profile Section
+   ===================================================== */
+
+.profile-section {
+    margin-bottom: 2rem;
+}
+
+.profile-card {
+    display: flex;
+    align-items: center;
+    gap: 2rem;
+    padding: 2rem;
+}
+
+.profile-avatar {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.avatar-text {
+    color: white;
+    font-size: 2.5rem;
+    font-weight: 700;
+}
+
+.profile-info {
+    flex: 1;
+}
+
+.profile-name {
+    font-size: 1.8rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem 0;
+    color: var(--text-primary);
+}
+
+.profile-position {
+    color: var(--text-secondary);
+    margin: 0 0 1rem 0;
+    font-size: 1.1rem;
+}
+
+.profile-badges {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.badge {
+    padding: 0.35rem 0.75rem;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+}
+
+.badge-base {
+    background: rgba(99, 102, 241, 0.2);
+    color: #818cf8;
+}
+
+.badge-status {
+    background: rgba(16, 185, 129, 0.2);
+    color: #34d399;
+}
+
+.profile-stats {
+    display: flex;
+    gap: 2rem;
+}
+
+.stat-item {
+    text-align: center;
+    padding: 1rem 1.5rem;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: 12px;
+}
+
+.stat-value {
+    display: block;
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.stat-label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.warning-level.NORMAL {
+    color: var(--status-green);
+}
+
+.warning-level.WARNING {
+    color: var(--status-yellow);
+}
+
+.warning-level.CRITICAL {
+    color: var(--status-red);
+}
+
+/* =====================================================
+   Info Section
+   ===================================================== */
+
+.info-section {
+    margin-bottom: 2rem;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.5rem;
+}
+
+.info-card {
+    padding: 1.5rem;
+}
+
+.card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0 0 1rem 0;
+    color: var(--text-primary);
+}
+
+.info-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 0.5rem 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.info-row:last-child {
+    border-bottom: none;
+}
+
+.info-label {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.info-value {
+    color: var(--text-primary);
+    font-weight: 500;
+    font-size: 0.9rem;
+}
+
+/* =====================================================
+   FTL Gauges
+   ===================================================== */
+
+.ftl-card {
+    padding: 1.5rem;
+}
+
+.ftl-gauges {
+    display: flex;
+    justify-content: center;
+    gap: 3rem;
+}
+
+.gauge-container {
+    text-align: center;
+}
+
+.gauge {
+    width: 100px;
+    height: 100px;
+    position: relative;
+    margin-bottom: 0.5rem;
+}
+
+.gauge svg {
+    transform: rotate(-90deg);
+}
+
+.gauge-bg {
+    fill: none;
+    stroke: rgba(255, 255, 255, 0.1);
+    stroke-width: 8;
+}
+
+.gauge-fill {
+    fill: none;
+    stroke: var(--accent-primary);
+    stroke-width: 8;
+    stroke-linecap: round;
+    stroke-dasharray: 283;
+    stroke-dashoffset: 283;
+    transition: stroke-dashoffset 1s ease;
+}
+
+.gauge-fill.warning {
+    stroke: var(--status-yellow);
+}
+
+.gauge-fill.critical {
+    stroke: var(--status-red);
+}
+
+.gauge-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.gauge-value {
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.gauge-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+}
+
+/* =====================================================
+   Roster Calendar
+   ===================================================== */
+
+.roster-section {
+    margin-bottom: 2rem;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1rem;
+}
+
+.section-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 0;
+    color: var(--text-primary);
+}
+
+.date-navigation {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.nav-btn {
+    background: rgba(255, 255, 255, 0.1);
+    border: none;
+    color: var(--text-primary);
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: all 0.3s ease;
+}
+
+.nav-btn:hover {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.current-month {
+    font-weight: 600;
+    color: var(--text-primary);
+    min-width: 150px;
+    text-align: center;
+}
+
+.roster-calendar {
+    padding: 1.5rem;
+}
+
+.calendar-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+}
+
+.calendar-header span {
+    text-align: center;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    padding: 0.5rem;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 0.5rem;
+}
+
+.calendar-day {
+    aspect-ratio: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.02);
+    cursor: pointer;
+    transition: all 0.3s ease;
+}
+
+.calendar-day:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.calendar-day.empty {
+    background: transparent;
+    cursor: default;
+}
+
+.calendar-day .day-number {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.calendar-day .day-code {
+    font-size: 0.65rem;
+    margin-top: 0.25rem;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    font-weight: 600;
+}
+
+/* Day status colors */
+.calendar-day.fly {
+    background: rgba(59, 130, 246, 0.2);
+    border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.calendar-day.fly .day-code {
+    background: rgba(59, 130, 246, 0.3);
+    color: #60a5fa;
+}
+
+.calendar-day.sby {
+    background: rgba(245, 158, 11, 0.2);
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.calendar-day.sby .day-code {
+    background: rgba(245, 158, 11, 0.3);
+    color: #fbbf24;
+}
+
+.calendar-day.off {
+    background: rgba(107, 114, 128, 0.2);
+    border: 1px solid rgba(107, 114, 128, 0.4);
+}
+
+.calendar-day.off .day-code {
+    background: rgba(107, 114, 128, 0.3);
+    color: #9ca3af;
+}
+
+.calendar-day.sl {
+    background: rgba(239, 68, 68, 0.2);
+    border: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.calendar-day.sl .day-code {
+    background: rgba(239, 68, 68, 0.3);
+    color: #f87171;
+}
+
+.calendar-day.trn {
+    background: rgba(139, 92, 246, 0.2);
+    border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+.calendar-day.trn .day-code {
+    background: rgba(139, 92, 246, 0.3);
+    color: #a78bfa;
+}
+
+.roster-legend {
+    display: flex;
+    justify-content: center;
+    gap: 2rem;
+    margin-top: 1rem;
+}
+
+.legend-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+}
+
+.legend-color {
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+}
+
+.legend-color.fly {
+    background: rgba(59, 130, 246, 0.6);
+}
+
+.legend-color.sby {
+    background: rgba(245, 158, 11, 0.6);
+}
+
+.legend-color.off {
+    background: rgba(107, 114, 128, 0.6);
+}
+
+.legend-color.sl {
+    background: rgba(239, 68, 68, 0.6);
+}
+
+.legend-color.trn {
+    background: rgba(139, 92, 246, 0.6);
+}
+
+/* =====================================================
+   Chart Section
+   ===================================================== */
+
+.chart-section {
+    margin-bottom: 2rem;
+}
+
+.chart-range {
+    display: flex;
+    gap: 0.5rem;
+}
+
+.range-btn {
+    background: rgba(255, 255, 255, 0.05);
+    border: none;
+    color: var(--text-secondary);
+    padding: 0.5rem 1rem;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: all 0.3s ease;
+}
+
+.range-btn:hover {
+    background: rgba(255, 255, 255, 0.1);
+}
+
+.range-btn.active {
+    background: var(--accent-primary);
+    color: white;
+}
+
+.chart-card {
+    padding: 1.5rem;
+}
+
+.chart-container {
+    height: 200px;
+    display: flex;
+    flex-direction: column;
+}
+
+.chart-bars {
+    flex: 1;
+    display: flex;
+    align-items: flex-end;
+    gap: 4px;
+    padding-bottom: 1rem;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.chart-bar {
+    flex: 1;
+    background: linear-gradient(180deg, var(--accent-primary), var(--accent-secondary));
+    border-radius: 4px 4px 0 0;
+    min-height: 4px;
+    transition: all 0.3s ease;
+    position: relative;
+}
+
+.chart-bar:hover {
+    opacity: 0.8;
+}
+
+.chart-bar::after {
+    content: attr(data-value);
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.chart-bar:hover::after {
+    opacity: 1;
+}
+
+.chart-labels {
+    display: flex;
+    gap: 4px;
+    padding-top: 0.5rem;
+}
+
+.chart-label {
+    flex: 1;
+    text-align: center;
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+/* =====================================================
+   Flights Table
+   ===================================================== */
+
+.flights-section {
+    margin-bottom: 2rem;
+}
+
+.flights-table {
+    padding: 0;
+    overflow: hidden;
+}
+
+.flights-table table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.flights-table th,
+.flights-table td {
+    padding: 1rem;
+    text-align: left;
+}
+
+.flights-table th {
+    background: rgba(255, 255, 255, 0.05);
+    font-weight: 600;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.flights-table td {
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+    color: var(--text-primary);
+}
+
+.flights-table tr:last-child td {
+    border-bottom: none;
+}
+
+.loading-cell {
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+/* =====================================================
+   Qualifications
+   ===================================================== */
+
+.quals-section {
+    margin-bottom: 2rem;
+}
+
+.quals-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.qual-card {
+    padding: 1rem;
+    text-align: center;
+}
+
+.qual-card.loading {
+    color: var(--text-secondary);
+}
+
+.qual-type {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 0.5rem;
+}
+
+.qual-name {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.5rem;
+}
+
+.qual-expiry {
+    font-size: 0.85rem;
+}
+
+.qual-expiry.valid {
+    color: var(--status-green);
+}
+
+.qual-expiry.expiring {
+    color: var(--status-yellow);
+}
+
+.qual-expiry.expired {
+    color: var(--status-red);
+}
+
+/* =====================================================
+   Responsive
+   ===================================================== */
+
+@media (max-width: 1024px) {
+    .profile-card {
+        flex-direction: column;
+        text-align: center;
+    }
+
+    .profile-badges {
+        justify-content: center;
+    }
+
+    .info-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .main-content {
+        padding: 1rem;
+    }
+
+    .profile-stats {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .ftl-gauges {
+        gap: 1.5rem;
+    }
+
+    .calendar-header span {
+        font-size: 0.7rem;
+    }
+
+    .calendar-day .day-number {
+        font-size: 0.75rem;
+    }
+
+    .calendar-day .day-code {
+        font-size: 0.55rem;
+    }
+}

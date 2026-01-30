@@ -1,0 +1,28 @@
+# Render deployment configuration
+# Phase 5: Testing & Deployment
+
+services:
+  - type: web
+    name: aviation-ops-dashboard
+    runtime: python
+    buildCommand: pip install -r requirements.txt && pip install gunicorn
+    startCommand: gunicorn --bind 0.0.0.0:$PORT --workers 2 --threads 4 api_server:app
+    envVars:
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: FLASK_DEBUG
+        value: "0"
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: AIMS_WSDL_URL
+        sync: false
+      - key: AIMS_USERNAME
+        sync: false
+      - key: AIMS_PASSWORD
+        sync: false
+    healthCheckPath: /health
+    autoDeploy: false

@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Aircraft Swap Analysis Dashboard</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300;400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#13ecc1",
+                        "background-light": "#f6f8f8",
+                        "background-dark": "#0b0e14",
+                    },
+                    fontFamily: {
+                        "display": ["Space Grotesk"]
+                    },
+                    borderRadius: {"DEFAULT": "0.25rem", "lg": "0.5rem", "xl": "0.75rem", "full": "9999px"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+        }
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+        }
+    </style>
+</head>
+<body class="bg-background-light dark:bg-background-dark text-slate-900 dark:text-slate-100 min-h-screen flex">
+<!-- Sidebar Navigation -->
+<aside class="w-64 border-r border-slate-200 dark:border-slate-800 flex flex-col h-screen sticky top-0 bg-background-light dark:bg-background-dark">
+<div class="p-6 flex items-center gap-3">
+<div class="bg-primary p-2 rounded-lg">
+<span class="material-symbols-outlined text-background-dark font-bold">flight_takeoff</span>
+</div>
+<div>
+<h1 class="text-lg font-bold leading-tight">AIMS System</h1>
+<p class="text-xs text-slate-500 dark:text-slate-400">Ops Control Center</p>
+</div>
+</div>
+<nav class="flex-1 px-4 space-y-1 overflow-y-auto">
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg cursor-pointer">
+<span class="material-symbols-outlined">dashboard</span>
+<span class="text-sm font-medium">Fleet Overview</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 bg-primary/10 text-primary rounded-lg cursor-pointer">
+<span class="material-symbols-outlined">swap_horiz</span>
+<span class="text-sm font-medium">Swap Analysis</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg cursor-pointer">
+<span class="material-symbols-outlined">group</span>
+<span class="text-sm font-medium">Crew Scheduling</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg cursor-pointer">
+<span class="material-symbols-outlined">description</span>
+<span class="text-sm font-medium">Flight Logs</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg cursor-pointer">
+<span class="material-symbols-outlined">bar_chart</span>
+<span class="text-sm font-medium">Reports</span>
+</div>
+<div class="pt-8 pb-4">
+<p class="px-3 text-[10px] font-bold uppercase tracking-widest text-slate-400">Filters</p>
+</div>
+<div class="px-3 space-y-4">
+<div class="space-y-2">
+<label class="text-[11px] font-medium text-slate-500">Aircraft Type</label>
+<select class="w-full bg-transparent border border-slate-200 dark:border-slate-800 rounded px-2 py-1.5 text-xs">
+<option>All Fleets</option>
+<option>A320-200</option>
+<option>B737-800</option>
+<option>B787-9</option>
+</select>
+</div>
+<div class="space-y-2">
+<label class="text-[11px] font-medium text-slate-500">Reason Category</label>
+<div class="space-y-1.5">
+<label class="flex items-center gap-2 text-xs">
+<input checked="" class="rounded border-slate-300 text-primary focus:ring-primary bg-transparent" type="checkbox"/>
+                            Technical
+                        </label>
+<label class="flex items-center gap-2 text-xs">
+<input checked="" class="rounded border-slate-300 text-primary focus:ring-primary bg-transparent" type="checkbox"/>
+                            Operational
+                        </label>
+<label class="flex items-center gap-2 text-xs">
+<input checked="" class="rounded border-slate-300 text-primary focus:ring-primary bg-transparent" type="checkbox"/>
+                            Crew
+                        </label>
+<label class="flex items-center gap-2 text-xs">
+<input checked="" class="rounded border-slate-300 text-primary focus:ring-primary bg-transparent" type="checkbox"/>
+                            Weather
+                        </label>
+</div>
+</div>
+</div>
+</nav>
+<div class="p-4 border-t border-slate-200 dark:border-slate-800 space-y-1">
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg cursor-pointer">
+<span class="material-symbols-outlined">settings</span>
+<span class="text-sm font-medium">Settings</span>
+</div>
+<div class="flex items-center gap-3 px-3 py-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-white/5 rounded-lg cursor-pointer">
+<span class="material-symbols-outlined">help</span>
+<span class="text-sm font-medium">Support</span>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 flex flex-col overflow-x-hidden">
+<!-- Top Header -->
+<header class="flex flex-wrap justify-between items-center gap-4 p-6 border-b border-slate-200 dark:border-slate-800">
+<div class="flex flex-col">
+<h2 class="text-2xl font-black tracking-tight">Aircraft Swap Analysis</h2>
+<p class="text-slate-500 dark:text-slate-400 text-sm">Real-time fleet utilization and swap reason analytics</p>
+</div>
+<div class="flex items-center gap-3">
+<button class="flex items-center gap-2 px-4 py-2 border border-slate-200 dark:border-slate-800 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+<span class="material-symbols-outlined text-sm">download</span>
+                    Export CSV
+                </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-primary text-background-dark rounded-lg text-sm font-bold hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-sm">refresh</span>
+                    Refresh Data
+                </button>
+</div>
+</header>
+<div class="p-6 space-y-6">
+<!-- KPI Summary Bar -->
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+<div class="flex flex-col gap-2 rounded-xl p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark shadow-sm">
+<div class="flex justify-between items-start">
+<p class="text-slate-500 dark:text-slate-400 text-sm font-medium">Total Swaps</p>
+<span class="material-symbols-outlined text-primary">sync_alt</span>
+</div>
+<p class="text-3xl font-bold tracking-tight">142</p>
+<div class="flex items-center gap-1 text-emerald-500 text-xs font-bold">
+<span class="material-symbols-outlined text-xs">trending_up</span>
+                        +12% vs last month
+                    </div>
+</div>
+<div class="flex flex-col gap-2 rounded-xl p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark shadow-sm">
+<div class="flex justify-between items-start">
+<p class="text-slate-500 dark:text-slate-400 text-sm font-medium">Swap Rate %</p>
+<span class="material-symbols-outlined text-primary">percent</span>
+</div>
+<p class="text-3xl font-bold tracking-tight">4.2%</p>
+<div class="flex items-center gap-1 text-emerald-500 text-xs font-bold">
+<span class="material-symbols-outlined text-xs">trending_down</span>
+                        -0.5% (Target &lt; 5%)
+                    </div>
+</div>
+<div class="flex flex-col gap-2 rounded-xl p-6 border border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark shadow-sm">
+<div class="flex justify-between items-start">
+<p class="text-slate-500 dark:text-slate-400 text-sm font-medium">Top Swap Reason</p>
+<span class="material-symbols-outlined text-orange-500">warning</span>
+</div>
+<p class="text-3xl font-bold tracking-tight">Technical</p>
+<p class="text-slate-400 text-xs uppercase tracking-wider font-bold">Category: AOG / Scheduled Maint</p>
+</div>
+</div>
+<!-- Charts and Ranked List Section -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+<!-- Swap Reasons Bar Chart -->
+<div class="lg:col-span-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark p-6">
+<div class="flex items-center justify-between mb-8">
+<div>
+<h3 class="font-bold text-lg">Swap Reasons Distribution</h3>
+<p class="text-slate-500 text-xs">Frequency by primary root cause (Last 30 Days)</p>
+</div>
+<div class="flex gap-2">
+<span class="flex items-center gap-1 text-[10px] font-bold uppercase"><div class="w-2 h-2 rounded-full bg-primary"></div> High Priority</span>
+<span class="flex items-center gap-1 text-[10px] font-bold uppercase"><div class="w-2 h-2 rounded-full bg-orange-500"></div> Delayed</span>
+</div>
+</div>
+<div class="flex items-end justify-between h-[200px] gap-4 px-2">
+<div class="flex-1 flex flex-col items-center gap-2 group">
+<div class="w-full bg-primary rounded-t opacity-90 hover:opacity-100 transition-opacity" style="height: 75%"></div>
+<span class="text-[10px] font-bold text-slate-400 uppercase">Technical</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-2 group">
+<div class="w-full bg-primary/40 rounded-t hover:bg-primary/60 transition-colors" style="height: 35%"></div>
+<span class="text-[10px] font-bold text-slate-400 uppercase">Operational</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-2 group">
+<div class="w-full bg-orange-500 rounded-t opacity-90 hover:opacity-100 transition-opacity" style="height: 55%"></div>
+<span class="text-[10px] font-bold text-slate-400 uppercase">Crew</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-2 group">
+<div class="w-full bg-primary/40 rounded-t hover:bg-primary/60 transition-colors" style="height: 25%"></div>
+<span class="text-[10px] font-bold text-slate-400 uppercase">Weather</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-2 group">
+<div class="w-full bg-primary/40 rounded-t hover:bg-primary/60 transition-colors" style="height: 15%"></div>
+<span class="text-[10px] font-bold text-slate-400 uppercase">Comm.</span>
+</div>
+<div class="flex-1 flex flex-col items-center gap-2 group">
+<div class="w-full bg-primary rounded-t opacity-90 hover:opacity-100 transition-opacity" style="height: 45%"></div>
+<span class="text-[10px] font-bold text-slate-400 uppercase">AOG</span>
+</div>
+</div>
+</div>
+<!-- Top Impacted Tail Numbers -->
+<div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark p-6">
+<h3 class="font-bold text-lg mb-4">Top Impacted Tails</h3>
+<div class="space-y-4">
+<div class="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-slate-800">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 flex items-center justify-center rounded-full bg-primary/20 text-primary text-xs font-bold">1</div>
+<div>
+<p class="text-sm font-bold">N123AF</p>
+<p class="text-[10px] text-slate-500">A320neo</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold">12 Swaps</p>
+<p class="text-[10px] text-red-500 font-bold uppercase">Critical</p>
+</div>
+</div>
+<div class="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-slate-800">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 dark:bg-white/10 text-slate-500 text-xs font-bold">2</div>
+<div>
+<p class="text-sm font-bold">N456BK</p>
+<p class="text-[10px] text-slate-500">B737-800</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold">9 Swaps</p>
+<p class="text-[10px] text-orange-500 font-bold uppercase">High</p>
+</div>
+</div>
+<div class="flex items-center justify-between p-3 rounded-lg bg-slate-50 dark:bg-white/5 border border-slate-100 dark:border-slate-800">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 flex items-center justify-center rounded-full bg-slate-200 dark:bg-white/10 text-slate-500 text-xs font-bold">3</div>
+<div>
+<p class="text-sm font-bold">N789DL</p>
+<p class="text-[10px] text-slate-500">B787-9</p>
+</div>
+</div>
+<div class="text-right">
+<p class="text-sm font-bold">7 Swaps</p>
+<p class="text-[10px] text-slate-400 font-bold uppercase">Normal</p>
+</div>
+</div>
+</div>
+<button class="w-full mt-6 py-2 text-xs font-bold text-primary hover:underline uppercase tracking-widest">View Full Fleet Ranking</button>
+</div>
+</div>
+<!-- Swap Log Table -->
+<div class="rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-background-dark overflow-hidden shadow-sm">
+<div class="p-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center">
+<h3 class="font-bold text-lg">Detailed Swap Log</h3>
+<div class="flex gap-2">
+<div class="relative">
+<span class="material-symbols-outlined absolute left-2 top-1.5 text-slate-400 text-lg">search</span>
+<input class="pl-9 pr-3 py-1.5 text-xs bg-slate-50 dark:bg-white/5 border border-slate-200 dark:border-slate-800 rounded focus:ring-1 focus:ring-primary outline-none" placeholder="Search Flight ID..." type="text"/>
+</div>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left text-sm">
+<thead>
+<tr class="bg-slate-50 dark:bg-white/5 text-[11px] uppercase tracking-wider font-bold text-slate-400 border-b border-slate-200 dark:border-slate-800">
+<th class="px-6 py-4">Date / Time (UTC)</th>
+<th class="px-6 py-4">Flight ID</th>
+<th class="px-6 py-4">Planned Tail</th>
+<th class="px-6 py-4">Actual Tail</th>
+<th class="px-6 py-4">Reason</th>
+<th class="px-6 py-4 text-right">Impact (Delay)</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-slate-200 dark:divide-slate-800">
+<tr class="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+<td class="px-6 py-4 text-xs font-mono">2023-11-24 08:45</td>
+<td class="px-6 py-4 font-bold text-primary">AA1245</td>
+<td class="px-6 py-4 text-slate-500">N123AF</td>
+<td class="px-6 py-4 font-bold">N012AA</td>
+<td class="px-6 py-4">
+<span class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-red-500"></div>
+                                        Technical - Engine Seal
+                                    </span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="px-2 py-1 rounded bg-red-500/10 text-red-500 text-[10px] font-black uppercase tracking-tighter border border-red-500/20">+45m</span>
+</td>
+</tr>
+<tr class="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+<td class="px-6 py-4 text-xs font-mono">2023-11-24 09:12</td>
+<td class="px-6 py-4 font-bold text-primary">UA882</td>
+<td class="px-6 py-4 text-slate-500">N456BK</td>
+<td class="px-6 py-4 font-bold">N789DL</td>
+<td class="px-6 py-4">
+<span class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-primary"></div>
+                                        Operational - Crew Duty
+                                    </span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="px-2 py-1 rounded bg-primary/10 text-primary text-[10px] font-black uppercase tracking-tighter border border-primary/20">+0m</span>
+</td>
+</tr>
+<tr class="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+<td class="px-6 py-4 text-xs font-mono">2023-11-24 10:30</td>
+<td class="px-6 py-4 font-bold text-primary">DL4410</td>
+<td class="px-6 py-4 text-slate-500">N012AA</td>
+<td class="px-6 py-4 font-bold">N123AF</td>
+<td class="px-6 py-4">
+<span class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
+                                        Weather - Low Visibility
+                                    </span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="px-2 py-1 rounded bg-orange-500/10 text-orange-500 text-[10px] font-black uppercase tracking-tighter border border-orange-500/20">+12m</span>
+</td>
+</tr>
+<tr class="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+<td class="px-6 py-4 text-xs font-mono">2023-11-24 11:15</td>
+<td class="px-6 py-4 font-bold text-primary">SW992</td>
+<td class="px-6 py-4 text-slate-500">N900RT</td>
+<td class="px-6 py-4 font-bold">N456BK</td>
+<td class="px-6 py-4">
+<span class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-red-500"></div>
+                                        Technical - AOG Cabin
+                                    </span>
+</td>
+<td class="px-6 py-4 text-right">
+<span class="px-2 py-1 rounded bg-red-500/10 text-red-500 text-[10px] font-black uppercase tracking-tighter border border-red-500/20">+28m</span>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="p-4 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between text-xs text-slate-500">
+<p>Showing 1-4 of 142 records</p>
+<div class="flex gap-1">
+<button class="px-3 py-1 border border-slate-200 dark:border-slate-800 rounded hover:bg-slate-50 dark:hover:bg-white/5 disabled:opacity-50" disabled="">Previous</button>
+<button class="px-3 py-1 border border-slate-200 dark:border-slate-800 rounded hover:bg-slate-50 dark:hover:bg-white/5">Next</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</body></html>
