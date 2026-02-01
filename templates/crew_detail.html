@@ -2,20 +2,38 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crew Detail - Aviation Operations Dashboard</title>
-    <meta name="description" content="Detailed crew information, roster, and flight hours">
-
-    <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-
-    <!-- Styles -->
-    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <title>Crew Detail | VJ Aviation Dashboard</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link rel="stylesheet" href="/static/css/shared.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,FILL@0..1&display=swap"
+        rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#22C55E",
+                        "secondary": "#EF4444",
+                        "background-dark": "#020617",
+                        "surface-dark": "#0f172a",
+                        "border-dark": "#1e293b",
+                    },
+                    fontFamily: {
+                        "technical": ["Fira Code", "monospace"],
+                        "sans": ["Fira Sans", "sans-serif"]
+                    },
+                },
+            },
+        }
+    </script>
     <link rel="stylesheet" href="/static/css/crew_detail.css">
 </head>
 
-<body>
+<body class="bg-background-dark text-white min-h-screen font-sans">
     <!-- Header -->
     <header class="header">
         <div class="header-left">

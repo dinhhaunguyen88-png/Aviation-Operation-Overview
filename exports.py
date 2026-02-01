@@ -202,23 +202,31 @@ def export_to_excel(
     Returns:
         Excel file as bytes
     """
+    # Handle empty sheets
+    if not sheets:
+        return b""
+    
+    # Filter out empty data sheets
+    non_empty_sheets = {k: v for k, v in sheets.items() if v}
+    if not non_empty_sheets:
+        return b""
+    
     try:
         import pandas as pd
         
         output = io.BytesIO()
         
         with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            for sheet_name, data in sheets.items():
-                if data:
-                    df = pd.DataFrame(data)
-                    df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+            for sheet_name, data in non_empty_sheets.items():
+                df = pd.DataFrame(data)
+                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
         
         return output.getvalue()
         
     except ImportError:
         logger.warning("pandas/openpyxl not installed, falling back to CSV")
         # Fallback to CSV for first sheet
-        first_sheet = list(sheets.values())[0] if sheets else []
+        first_sheet = list(non_empty_sheets.values())[0] if non_empty_sheets else []
         return export_to_csv(first_sheet)
 
 

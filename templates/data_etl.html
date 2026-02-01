@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en">
+
+<head>
+    <title>Data & ETL | VJ Aviation Dashboard</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link rel="stylesheet" href="/static/css/shared.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,FILL@0..1&display=swap"
+        rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#22C55E",
+                        "secondary": "#EF4444",
+                        "background-dark": "#020617",
+                        "surface-dark": "#0f172a",
+                        "border-dark": "#1e293b",
+                    },
+                    fontFamily: {
+                        "technical": ["Fira Code", "monospace"],
+                        "sans": ["Fira Sans", "sans-serif"]
+                    },
+                },
+            },
+        }
+    </script>
+</head>
+
+<body class="bg-background-dark text-white min-h-screen">
+    <div class="app-container">
+        {% include 'sidebar.html' %}
+        <div class="main-wrapper">
+
+            <div class="max-w-6xl mx-auto p-8 space-y-8">
+                <!-- Header & Breadcrumbs -->
+                <div class="space-y-2">
+                    <nav class="flex items-center gap-2 text-sm text-slate-500 dark:text-[#9eb7b2] font-medium">
+                        <a class="hover:text-primary transition-colors" href="#">System</a>
+                        <span>/</span>
+                        <span class="text-slate-900 dark:text-white">Data Management</span>
+                    </nav>
+                    <div class="flex items-center justify-between">
+                        <div class="space-y-1">
+                            <h2 class="text-3xl font-black tracking-tight text-slate-900 dark:text-white">Data Ingestion
+                                &amp; ETL Monitoring</h2>
+                            <p class="text-slate-600 dark:text-[#9eb7b2]">Manage AIMS system exports and monitor
+                                real-time pipeline health.</p>
+                        </div>
+                        <div class="flex gap-3">
+                            <button
+                                class="flex items-center gap-2 px-4 py-2 border border-slate-300 dark:border-white/10 rounded-lg text-sm font-semibold hover:bg-slate-100 dark:hover:bg-white/5 transition-colors">
+                                <span class="material-symbols-outlined text-sm">refresh</span> Refresh
+                            </button>
+                            <button
+                                class="flex items-center gap-2 px-4 py-2 bg-white/10 dark:bg-white/5 border border-white/10 rounded-lg text-sm font-semibold hover:bg-white/10 transition-colors">
+                                <span class="material-symbols-outlined text-sm">download</span> Export Logs
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <!-- System Health Grid -->
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- Postgres Health -->
+                    <div
+                        class="bg-white dark:bg-[#1a2e2a] border border-slate-200 dark:border-white/5 p-5 rounded-xl shadow-sm">
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="space-y-1">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">PostgreSQL DB</p>
+                                <p class="text-lg font-bold text-slate-900 dark:text-white">Production Cluster</p>
+                            </div>
+                            <span
+                                class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold uppercase">
+                                <span class="size-1.5 rounded-full bg-primary animate-pulse"></span> Active
+                            </span>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-xs text-slate-500 dark:text-[#9eb7b2]">
+                                <span>Latency</span>
+                                <span id="db-latency">-- ms</span>
+                            </div>
+                            <div class="w-full bg-slate-100 dark:bg-black/20 rounded-full h-1.5">
+                                <div id="db-latency-bar" class="bg-primary h-1.5 rounded-full" style="width: 0%"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Redis Health -->
+                    <div
+                        class="bg-white dark:bg-[#1a2e2a] border border-slate-200 dark:border-white/5 p-5 rounded-xl shadow-sm">
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="space-y-1">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">Redis Cache</p>
+                                <p class="text-lg font-bold text-slate-900 dark:text-white">Ingestion Buffer</p>
+                            </div>
+                            <span
+                                class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold uppercase">
+                                <span class="size-1.5 rounded-full bg-primary animate-pulse"></span> Active
+                            </span>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-xs text-slate-500 dark:text-[#9eb7b2]">
+                                <span>Memory (4GB)</span>
+                                <span id="cache-memory">--%</span>
+                            </div>
+                            <div class="w-full bg-slate-100 dark:bg-black/20 rounded-full h-1.5">
+                                <div id="cache-memory-bar" class="bg-primary h-1.5 rounded-full" style="width: 0%">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Bull Queue Health -->
+                    <div
+                        class="bg-white dark:bg-[#1a2e2a] border border-slate-200 dark:border-white/5 p-5 rounded-xl shadow-sm">
+                        <div class="flex justify-between items-start mb-4">
+                            <div class="space-y-1">
+                                <p class="text-xs font-bold text-slate-400 uppercase tracking-wider">ETL Queue (Bull)
+                                </p>
+                                <p class="text-lg font-bold text-slate-900 dark:text-white">Active Processing</p>
+                            </div>
+                            <span
+                                class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-accent-orange/20 text-accent-orange text-[10px] font-bold uppercase">
+                                <span class="size-1.5 rounded-full bg-accent-orange animate-pulse"></span> Processing
+                            </span>
+                        </div>
+                        <div class="space-y-2">
+                            <div class="flex justify-between text-xs text-slate-500 dark:text-[#9eb7b2]">
+                                <span>Queue Depth</span>
+                                <span id="queue-depth">-- Jobs</span>
+                            </div>
+                            <div class="w-full bg-slate-100 dark:bg-black/20 rounded-full h-1.5">
+                                <div id="queue-depth-bar" class="bg-accent-orange h-1.5 rounded-full" style="width: 0%">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <!-- Section: File Upload Area -->
+                <div class="space-y-4">
+                    <h3 class="text-xl font-bold text-slate-900 dark:text-white">Upload AIMS Export</h3>
+
+                    <!-- File Type Selector -->
+                    <div class="flex gap-3 mb-4">
+                        <button
+                            class="file-type-btn active flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+                            data-type="crew_hours">
+                            <span class="material-symbols-outlined text-lg">schedule</span>
+                            Crew Hours (RolCrTot)
+                        </button>
+                        <button
+                            class="file-type-btn flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+                            data-type="flights">
+                            <span class="material-symbols-outlined text-lg">flight</span>
+                            Flights (DayRep)
+                        </button>
+                        <button
+                            class="file-type-btn flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all"
+                            data-type="standby">
+                            <span class="material-symbols-outlined text-lg">person_alert</span>
+                            Standby Records
+                        </button>
+                    </div>
+
+                    <!-- Upload Zone -->
+                    <div id="dropZone"
+                        class="flex flex-col items-center gap-6 rounded-xl border-2 border-dashed border-slate-300 dark:border-[#3d524e] bg-white/50 dark:bg-[#1a2e2a]/30 px-6 py-14 hover:border-primary/50 transition-colors cursor-pointer group">
+                        <input type="file" id="fileInput" accept=".csv,.xlsx" class="hidden" />
+                        <div id="uploadIcon"
+                            class="p-4 rounded-full bg-slate-100 dark:bg-white/5 group-hover:scale-110 transition-transform">
+                            <span class="material-symbols-outlined text-4xl text-primary">cloud_upload</span>
+                        </div>
+                        <div id="uploadText" class="flex max-w-[480px] flex-col items-center gap-2">
+                            <p class="text-slate-900 dark:text-white text-lg font-bold text-center">Drag and drop AIMS
+                                data files</p>
+                            <p class="text-slate-500 dark:text-slate-400 text-sm font-normal text-center">Supported
+                                formats: .CSV, .XLSX (Max 500MB per file)</p>
+                        </div>
+                        <!-- Progress Container (hidden by default) -->
+                        <div id="uploadProgress" class="hidden w-full max-w-md space-y-2">
+                            <div class="flex justify-between text-sm">
+                                <span id="uploadFileName" class="text-white font-medium">file.csv</span>
+                                <span id="uploadPercent" class="text-primary font-bold">0%</span>
+                            </div>
+                            <div class="w-full bg-slate-700 rounded-full h-2">
+                                <div id="progressBar" class="bg-primary h-2 rounded-full transition-all"
+                                    style="width: 0%"></div>
+                            </div>
+                        </div>
+                        <!-- Result Container (hidden by default) -->
+                        <div id="uploadResult" class="hidden w-full max-w-md p-4 rounded-lg"></div>
+                        <button id="browseBtn"
+                            class="flex min-w-[140px] items-center justify-center rounded-xl h-11 px-6 bg-slate-800 dark:bg-[#293835] text-white text-sm font-bold hover:bg-slate-700 dark:hover:bg-[#344643] transition-colors">
+                            Browse Files
+                        </button>
+                    </div>
+                </div>
+
+                <style>
+                    .file-type-btn {
+                        background: rgba(255, 255, 255, 0.05);
+                        border: 1px solid rgba(255, 255, 255, 0.1);
+                        color: #9eb7b2;
+                    }
+
+                    .file-type-btn:hover {
+                        background: rgba(255, 255, 255, 0.1);
+                        color: white;
+                    }
+
+                    .file-type-btn.active {
+                        background: rgba(26, 188, 156, 0.15);
+                        border-color: #1abc9c;
+                        color: #1abc9c;
+                    }
+
+                    #dropZone.dragover {
+                        border-color: #1abc9c;
+                        background: rgba(26, 188, 156, 0.1);
+                    }
+                </style>
+
+                <script>
+                        // File Upload Handler
+                        (function () {
+                            const dropZone = document.getElementById('dropZone');
+                            const fileInput = document.getElementById('fileInput');
+                            const browseBtn = document.getElementById('browseBtn');
+                            const uploadProgress = document.getElementById('uploadProgress');
+                            const uploadResult = document.getElementById('uploadResult');
+                            const uploadText = document.getElementById('uploadText');
+                            const uploadIcon = document.getElementById('uploadIcon');
+                            const progressBar = document.getElementById('progressBar');
+                            const uploadFileName = document.getElementById('uploadFileName');
+                            const uploadPercent = document.getElementById('uploadPercent');
+                            const etlHistoryBody = document.getElementById('etlHistoryBody');
+
+                            let selectedFileType = 'crew_hours';
+
+                            // Initial load
+                            fetchETLHistory();
+                            fetchSystemHealth();
+                            setInterval(fetchSystemHealth, 5000); // Update health every 5s
+
+                            async function fetchSystemHealth() {
+                                try {
+                                    const response = await fetch('/api/system/health');
+                                    const data = await response.json();
+                                    if (data.success) {
+                                        const health = data.data;
+
+                                        // Update DB
+                                        document.getElementById('db-latency').textContent = health.api.latency_ms + ' ms';
+                                        document.getElementById('db-latency-bar').style.width = (health.api.latency_ms * 2) + '%';
+
+                                        // Update Cache
+                                        document.getElementById('cache-memory').textContent = health.cache.hit_rate;
+                                        document.getElementById('cache-memory-bar').style.width = health.cache.hit_rate;
+
+                                        // Update Queue
+                                        document.getElementById('queue-depth').textContent = health.queue.depth + ' Jobs';
+                                        document.getElementById('queue-depth-bar').style.width = Math.min(health.queue.depth, 100) + '%';
+                                    }
+                                } catch (err) {
+                                    console.error('Failed to fetch health:', err);
+                                }
+                            }
+
+                            async function fetchETLHistory() {
+                                try {
+                                    const response = await fetch('/api/etl/history');
+                                    const data = await response.json();
+                                    if (data.success) {
+                                        renderETLHistory(data.data);
+                                    }
+                                } catch (err) {
+                                    console.error('Failed to fetch ETL history:', err);
+                                }
+                            }
+
+                            function renderETLHistory(jobs) {
+                                if (!jobs || jobs.length === 0) {
+                                    etlHistoryBody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500 italic">No ingestion tasks found</td></tr>';
+                                    return;
+                                }
+
+                                etlHistoryBody.innerHTML = jobs.map(job => {
+                                    const statusClass = job.status === 'SUCCESS' ? 'bg-primary/10 text-primary' : (job.status === 'FAILED' ? 'bg-secondary/10 text-secondary' : 'bg-accent-orange/10 text-accent-orange');
+                                    const statusIcon = job.status === 'SUCCESS' ? 'check_circle' : (job.status === 'FAILED' ? 'cancel' : 'error');
+
+                                    return `
+                                        <tr class="hover:bg-slate-50 dark:hover:bg-white/5 transition-colors">
+                                            <td class="px-6 py-4 font-medium text-sm text-slate-900 dark:text-white">${job.file_name}</td>
+                                            <td class="px-6 py-4 text-sm font-mono">${(job.records_processed || 0).toLocaleString()}</td>
+                                            <td class="px-6 py-4 text-sm font-mono">${(job.records_inserted || 0).toLocaleString()}</td>
+                                            <td class="px-6 py-4 text-sm font-mono">0</td>
+                                            <td class="px-6 py-4 text-sm font-mono text-slate-400">${(job.records_failed || 0).toLocaleString()}</td>
+                                            <td class="px-6 py-4">
+                                                <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${statusClass} text-xs font-bold uppercase">
+                                                    <span class="material-symbols-outlined text-[14px]">${statusIcon}</span>
+                                                    ${job.status}
+                                                </span>
+                                            </td>
+                                        </tr>
+                                    `;
+                                }).join('');
+                            }
+
+                            // File type buttons
+                            document.querySelectorAll('.file-type-btn').forEach(btn => {
+                                btn.addEventListener('click', (e) => {
+                                    document.querySelectorAll('.file-type-btn').forEach(b => b.classList.remove('active'));
+                                    btn.classList.add('active');
+                                    selectedFileType = btn.dataset.type;
+                                });
+                            });
+
+                            // Browse button
+                            browseBtn.addEventListener('click', (e) => {
+                                e.stopPropagation();
+                                fileInput.click();
+                            });
+
+                            dropZone.addEventListener('click', () => fileInput.click());
+
+                            // Drag and drop
+                            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                                dropZone.addEventListener(eventName, (e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                });
+                            });
+
+                            ['dragenter', 'dragover'].forEach(eventName => {
+                                dropZone.addEventListener(eventName, () => dropZone.classList.add('dragover'));
+                            });
+
+                            ['dragleave', 'drop'].forEach(eventName => {
+                                dropZone.addEventListener(eventName, () => dropZone.classList.remove('dragover'));
+                            });
+
+                            dropZone.addEventListener('drop', (e) => {
+                                const files = e.dataTransfer.files;
+                                if (files.length > 0) handleFile(files[0]);
+                            });
+
+                            fileInput.addEventListener('change', (e) => {
+                                if (e.target.files.length > 0) handleFile(e.target.files[0]);
+                            });
+
+                            function handleFile(file) {
+                                if (!file.name.match(/\.(csv|xlsx)$/i)) {
+                                    showResult('error', 'Invalid file format. Please use CSV or XLSX.');
+                                    return;
+                                }
+
+                                uploadText.classList.add('hidden');
+                                uploadIcon.classList.add('hidden');
+                                browseBtn.classList.add('hidden');
+                                uploadProgress.classList.remove('hidden');
+                                uploadResult.classList.add('hidden');
+
+                                uploadFileName.textContent = file.name;
+                                progressBar.style.width = '0%';
+                                uploadPercent.textContent = '0%';
+
+                                uploadFile(file);
+                            }
+
+                            function uploadFile(file) {
+                                const formData = new FormData();
+                                formData.append('file', file);
+                                formData.append('type', selectedFileType);
+
+                                const xhr = new XMLHttpRequest();
+
+                                xhr.upload.addEventListener('progress', (e) => {
+                                    if (e.lengthComputable) {
+                                        const percent = Math.round((e.loaded / e.total) * 100);
+                                        progressBar.style.width = percent + '%';
+                                        uploadPercent.textContent = percent + '%';
+                                    }
+                                });
+
+                                xhr.addEventListener('load', () => {
+                                    uploadProgress.classList.add('hidden');
+                                    if (xhr.status === 200) {
+                                        const response = JSON.parse(xhr.responseText);
+                                        showResult('success', `Successfully processed ${response.data.records_count} records`);
+                                        fetchETLHistory(); // Refresh table
+                                    } else {
+                                        const response = JSON.parse(xhr.responseText);
+                                        showResult('error', response.error || 'Upload failed');
+                                        fetchETLHistory(); // Refresh table even on failure
+                                    }
+                                    resetUploadUI();
+                                });
+
+                                xhr.addEventListener('error', () => {
+                                    uploadProgress.classList.add('hidden');
+                                    showResult('error', 'Network error. Please try again.');
+                                    resetUploadUI();
+                                });
+
+                                xhr.open('POST', '/api/upload/csv');
+                                xhr.send(formData);
+                            }
+
+                            function showResult(type, message) {
+                                uploadResult.classList.remove('hidden');
+                                if (type === 'success') {
+                                    uploadResult.className = 'w-full max-w-md p-4 rounded-lg bg-primary/20 text-primary';
+                                    uploadResult.innerHTML = '<span class="material-symbols-outlined align-middle mr-2">check_circle</span>' + message;
+                                } else {
+                                    uploadResult.className = 'w-full max-w-md p-4 rounded-lg bg-red-500/20 text-red-400';
+                                    uploadResult.innerHTML = '<span class="material-symbols-outlined align-middle mr-2">error</span>' + message;
+                                }
+                            }
+
+                            function resetUploadUI() {
+                                setTimeout(() => {
+                                    uploadText.classList.remove('hidden');
+                                    uploadIcon.classList.remove('hidden');
+                                    browseBtn.classList.remove('hidden');
+                                    fileInput.value = '';
+                                }, 3000);
+                            }
+                        })();
+                </script>
+                <!-- ETL Audit Log Table -->
+                <div class="space-y-4">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xl font-bold text-slate-900 dark:text-white">ETL Audit Log</h3>
+                        <p class="text-xs text-slate-500 dark:text-[#9eb7b2]">Showing last 5 ingestion tasks</p>
+                    </div>
+                    <div
+                        class="bg-white dark:bg-[#1a2e2a] border border-slate-200 dark:border-white/5 rounded-xl overflow-hidden shadow-sm">
+                        <table class="w-full text-left border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 dark:bg-black/20 border-b border-slate-200 dark:border-white/5">
+                                    <th
+                                        class="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#9eb7b2]">
+                                        File Name</th>
+                                    <th
+                                        class="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#9eb7b2]">
+                                        Processed</th>
+                                    <th
+                                        class="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#9eb7b2]">
+                                        Inserted</th>
+                                    <th
+                                        class="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#9eb7b2]">
+                                        Updated</th>
+                                    <th
+                                        class="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#9eb7b2]">
+                                        Rejected</th>
+                                    <th
+                                        class="px-6 py-4 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-[#9eb7b2]">
+                                        Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="etlHistoryBody" class="divide-y divide-slate-100 dark:divide-white/5">
+                                <!-- Dynamic Content -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div><!-- End main-wrapper -->
+    </div><!-- End app-container -->
+</body>
+
+</html>

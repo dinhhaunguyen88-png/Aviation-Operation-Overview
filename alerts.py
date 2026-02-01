@@ -149,20 +149,20 @@ class AlertService:
         Returns:
             Alert ID if successful
         """
-        try:
-            if self.supabase:
+        # Try database first
+        if self.supabase:
+            try:
                 result = self.supabase.table("alerts").insert(alert.to_dict()).execute()
                 if result.data:
                     alert.id = result.data[0].get("id")
                     return alert.id
-            
-            # Fallback: store in memory
-            self._active_alerts.append(alert)
-            return f"mem_{len(self._active_alerts)}"
-            
-        except Exception as e:
-            logger.error(f"Failed to create alert: {e}")
-            return None
+            except Exception as e:
+                logger.warning(f"Database insert failed, using memory storage: {e}")
+        
+        # Fallback to memory storage
+        alert.id = f"mem_{len(self._active_alerts) + 1}"
+        self._active_alerts.append(alert)
+        return alert.id
     
     def get_active_alerts(
         self,
@@ -181,8 +181,9 @@ class AlertService:
         Returns:
             List of Alert objects
         """
-        try:
-            if self.supabase:
+        # Try database first
+        if self.supabase:
+            try:
                 query = self.supabase.table("alerts") \
                     .select("*") \
                     .eq("acknowledged", False) \
@@ -196,18 +197,16 @@ class AlertService:
                 
                 result = query.execute()
                 return [Alert.from_dict(a) for a in (result.data or [])]
-            
-            # Fallback: return from memory
-            alerts = [a for a in self._active_alerts if not a.acknowledged]
-            if severity:
-                alerts = [a for a in alerts if a.severity == severity]
-            if alert_type:
-                alerts = [a for a in alerts if a.alert_type == alert_type]
-            return alerts[:limit]
-            
-        except Exception as e:
-            logger.error(f"Failed to get alerts: {e}")
-            return []
+            except Exception as e:
+                logger.warning(f"Database query failed, using memory storage: {e}")
+        
+        # Fallback: return from memory
+        alerts = [a for a in self._active_alerts if not a.acknowledged]
+        if severity:
+            alerts = [a for a in alerts if a.severity == severity]
+        if alert_type:
+            alerts = [a for a in alerts if a.alert_type == alert_type]
+        return alerts[:limit]
     
     def acknowledge_alert(self, alert_id: str, user: str = "system") -> bool:
         """

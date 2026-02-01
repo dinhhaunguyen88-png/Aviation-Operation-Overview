@@ -187,7 +187,9 @@ class TestAlertService:
         )
         
         result = service.create_alert(alert)
+        # When Supabase is not available, falls back to memory storage
         assert result is not None
+        assert result.startswith("mem_")
     
     def test_get_active_alerts(self):
         """Test getting active alerts."""

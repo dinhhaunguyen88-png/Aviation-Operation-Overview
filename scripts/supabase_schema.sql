@@ -1,30 +1,3 @@
-"""
-Database Initialization Script
-Phase 1: Foundation Setup
-
-Creates all required tables in Supabase for the Aviation Operations Dashboard.
-"""
-
-import os
-from dotenv import load_dotenv
-from supabase import create_client, Client
-
-# Load environment variables
-load_dotenv()
-
-SUPABASE_URL = os.getenv("SUPABASE_URL")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY")
-
-
-def get_supabase_client() -> Client:
-    """Create and return Supabase client."""
-    if not SUPABASE_URL or not SUPABASE_KEY:
-        raise ValueError("SUPABASE_URL and SUPABASE_KEY must be set in .env")
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
-
-
-# Table definitions (for documentation - actual creation done in Supabase dashboard)
-TABLE_DEFINITIONS = """
 -- =====================================================
 -- Aviation Operations Dashboard - Supabase Schema
 -- Run this in Supabase SQL Editor
@@ -188,57 +161,98 @@ CREATE TABLE IF NOT EXISTS etl_jobs (
 
 -- Index
 CREATE INDEX IF NOT EXISTS idx_etl_jobs_status ON etl_jobs(status);
-"""
 
+-- =====================================================
+-- Table: users (for RBAC)
+-- Stores dashboard user accounts
+-- =====================================================
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    name VARCHAR(200) NOT NULL,
+    role VARCHAR(50) DEFAULT 'viewer',  -- admin, manager, analyst, viewer
+    department VARCHAR(100),
+    is_active BOOLEAN DEFAULT true,
+    last_login TIMESTAMP WITH TIME ZONE,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
 
-def verify_connection():
-    """Verify Supabase connection."""
-    try:
-        client = get_supabase_client()
-        # Try a simple query
-        result = client.table("crew_members").select("count", count="exact").execute()
-        print("✅ Supabase connection successful!")
-        print(f"   crew_members table exists with {result.count or 0} records")
-        return True
-    except Exception as e:
-        print(f"❌ Connection failed: {e}")
-        return False
+-- =====================================================
+-- Row Level Security (RLS) - Optional
+-- =====================================================
+-- Enable RLS on tables
+ALTER TABLE crew_members ENABLE ROW LEVEL SECURITY;
+ALTER TABLE crew_flight_hours ENABLE ROW LEVEL SECURITY;
+ALTER TABLE flights ENABLE ROW LEVEL SECURITY;
+ALTER TABLE standby_records ENABLE ROW LEVEL SECURITY;
 
+-- Allow authenticated users to read all data
+CREATE POLICY "Allow read access for authenticated users" ON crew_members
+    FOR SELECT USING (auth.role() = 'authenticated');
 
-def print_schema():
-    """Print the SQL schema for manual creation."""
-    print("\n" + "="*60)
-    print("DATABASE SCHEMA - Run in Supabase SQL Editor:")
-    print("="*60)
-    print(TABLE_DEFINITIONS)
+CREATE POLICY "Allow read access for authenticated users" ON crew_flight_hours
+    FOR SELECT USING (auth.role() = 'authenticated');
 
+CREATE POLICY "Allow read access for authenticated users" ON flights
+    FOR SELECT USING (auth.role() = 'authenticated');
 
-def main():
-    """Main initialization function."""
-    print("="*60)
-    print("Aviation Operations Dashboard - Database Initialization")
-    print("="*60)
-    
-    # Check environment
-    print("\n📋 Checking environment variables...")
-    if SUPABASE_URL:
-        print(f"   SUPABASE_URL: {SUPABASE_URL[:30]}...")
-    else:
-        print("   ❌ SUPABASE_URL not set!")
-        
-    if SUPABASE_KEY:
-        print(f"   SUPABASE_KEY: {SUPABASE_KEY[:20]}...")
-    else:
-        print("   ❌ SUPABASE_KEY not set!")
-    
-    # Verify connection
-    print("\n🔌 Testing Supabase connection...")
-    if verify_connection():
-        print("\n✅ Database ready!")
-    else:
-        print("\n⚠️  Please configure Supabase and create tables manually.")
-        print_schema()
+CREATE POLICY "Allow read access for authenticated users" ON standby_records
+    FOR SELECT USING (auth.role() = 'authenticated');
 
+-- Allow service role to do everything (for API access)
+CREATE POLICY "Allow all for service role" ON crew_members
+    FOR ALL USING (auth.role() = 'service_role');
 
-if __name__ == "__main__":
-    main()
+CREATE POLICY "Allow all for service role" ON crew_flight_hours
+    FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "Allow all for service role" ON flights
+    FOR ALL USING (auth.role() = 'service_role');
+
+CREATE POLICY "Allow all for service role" ON standby_records
+    FOR ALL USING (auth.role() = 'service_role');
+
+-- =====================================================
+-- Function: Update timestamp trigger
+-- =====================================================
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Apply trigger to all tables
+CREATE TRIGGER update_crew_members_timestamp
+    BEFORE UPDATE ON crew_members
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_crew_flight_hours_timestamp
+    BEFORE UPDATE ON crew_flight_hours
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_flights_timestamp
+    BEFORE UPDATE ON flights
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_standby_records_timestamp
+    BEFORE UPDATE ON standby_records
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- =====================================================
+-- Seed Data (Optional - for testing)
+-- =====================================================
+-- INSERT INTO crew_members (crew_id, crew_name, first_name, last_name, base, gender)
+-- VALUES 
+--     ('C001', 'Nguyen Van A', 'Van A', 'Nguyen', 'SGN', 'M'),
+--     ('C002', 'Tran Thi B', 'Thi B', 'Tran', 'HAN', 'F'),
+--     ('C003', 'Le Van C', 'Van C', 'Le', 'DAD', 'M');
+
+COMMENT ON TABLE crew_members IS 'Crew member master data';
+COMMENT ON TABLE crew_flight_hours IS 'FTL flight hours tracking';
+COMMENT ON TABLE flights IS 'Flight schedule and status';
+COMMENT ON TABLE standby_records IS 'Standby, sick leave, and other duty records';
+COMMENT ON TABLE etl_jobs IS 'ETL job execution history';
+COMMENT ON TABLE users IS 'Dashboard user accounts for RBAC';

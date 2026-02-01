@@ -1,0 +1,40 @@
+{
+  "meta": { "schema_version": "1.1.0", "awf_version": "3.3.0" },
+  "project": { 
+      "name": "Aviation Operations Dashboard", 
+      "type": "Data Visualization / KPI Dashboard", 
+      "status": "In Development (Phase 3 Completed)" 
+  },
+  "tech_stack": { 
+      "backend": { "language": "Python", "framework": "Flask", "libraries": ["pandas", "zeep"] },
+      "frontend": { "language": "JavaScript (Vanilla)", "framework": "HTML/CSS (Custom Premium Design)", "charts": "Chart.js" },
+      "data": { "source": "AIMS API (SOAP)", "local_storage": "SQLite/CSV", "ingestion": "Background Scheduler" }
+  },
+  "database_schema": { 
+      "summary": "Tracks Flights, Crew, and Dashboard KPIs",
+      "tables": ["flights (real-time ops)", "crew (roster & status)", "kpi_history"],
+      "relationships": "Flights mapped to Aircraft; Crew mapped to Flights or Standby duties" 
+  },
+  "features": [
+      { "name": "Operations Day", "desc": "Custom day window 04:00 - 03:59 for operational metrics" },
+      { "name": "KPI: A/C Type Hour", "desc": "Breakdown of total block hours by Aircraft Type (A321, A320, etc.)" },
+      { "name": "KPI: Total Flight Completed", "desc": "Count of flights with valid ATA or Gate Arrival (On-Block)" },
+      { "name": "KPI: OTP", "desc": "On-Time Performance % calculated only for Completed Flights" },
+      { "name": "Charts: Operational Pulse", "desc": "Hourly flight volume trend" },
+      { "name": "Charts: Crew Distribution", "desc": "Status breakdown (FLY, SBY, OFF, SL)" }
+  ],
+  "business_rules": [
+      "Operational Window is 04:00 Local to 03:59 Next Day",
+      "OTP is strictly (OnTime / Completed Flights) * 100",
+      "Completed Flight definition: Has 'ata' OR 'on_block' time",
+      "Block Hours Fallback: If 'block_hours' missing, calc (OnBlock - OffBlock)",
+      "Colors: Warning (Red) for delays/sick, Success (Green) for high OTP/Completion"
+  ],
+  "knowledge_items": { 
+      "patterns": ["Consolidated Data Processor in `calculate_dashboard_summary`"],
+      "gotchas": [
+          "AIMS API sometimes returns null 'block_hours' -> Use On/Off diff fallback",
+          "Flight 'std' can be 'HH:MM:SS' or 'HH:MM' or ISO -> Use robust parsing"
+      ]
+  }
+}

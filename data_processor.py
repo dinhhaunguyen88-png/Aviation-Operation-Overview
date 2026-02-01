@@ -333,48 +333,260 @@ def calculate_dashboard_summary(
     """
     target_date = target_date or date.today()
     
+    # Define Operations Window: 04:00 today to 03:59 tomorrow
+    start_dt = datetime.combine(target_date, datetime.min.time()).replace(hour=4, minute=0, second=0)
+    end_dt = start_dt + timedelta(hours=24) - timedelta(seconds=1)
+
+    # Filter flights within the Operations Window
+    ops_flights = []
+    for flight in flight_data:
+        std_str = flight.get("std", "")
+        if std_str and ":" in std_str:
+            try:
+                parts = std_str.split(":")
+                f_hour = int(parts[0])
+                
+                # Simplified check for just "HH:MM" assuming it belongs to target_date:
+                # In a real scenario with cross-day data, we'd check timestamps.
+                # Here we assume data is for target_date. 
+                # Flights 00:00-03:59 belong to PREVIOUS Ops Day.
+                # Flights 04:00-23:59 belong to CURRENT Ops Day.
+                # Wait, if we are loading data for Feb 1st, and we see 02:00, it is Feb 1st 02:00.
+                # Does Feb 1st 02:00 belong to Feb 1st Ops Day (Starts Feb 1st 04:00)? NO.
+                # It belongs to Jan 31st Ops Day.
+                
+                # So for target_date Feb 1st, we want:
+                # - Feb 1st 04:00 -> 23:59
+                # - Feb 2nd 00:00 -> 03:59
+                
+                # If flight_data ONLY contains Feb 1st flights:
+                # We Keep 04:00 -> 23:59.
+                # We exclude 00:00 -> 03:59.
+                
+                if 4 <= f_hour <= 23:
+                     ops_flights.append(flight)
+                     
+                # Note: We are missing T+1 00:00-03:59 data if not provided in flight_data.
+                
+            except (ValueError, IndexError):
+                pass
+    
+    # Overwrite total_flights with Operational count
+    total_flights = len(ops_flights)
+    
+    # Calculate Total Aircraft Operation (unique regs in Ops Window)
+    unique_ops_aircraft = set()
+    for flight in ops_flights:
+        reg = flight.get("aircraft_reg")
+        if reg:
+            unique_ops_aircraft.add(reg)
+    total_aircraft_operation = len(unique_ops_aircraft)
+
+    # Recalculate block hours for Ops Window
+    total_block_hours = 0.0
+    for flight in ops_flights:
+        off_block = flight.get("off_block")
+        on_block = flight.get("on_block")
+        
+        if off_block and on_block:
+            try:
+                off_parts = off_block.split(":")
+                on_parts = on_block.split(":")
+                if len(off_parts) >= 2 and len(on_parts) >= 2:
+                    off_minutes = int(off_parts[0]) * 60 + int(off_parts[1])
+                    on_minutes = int(on_parts[0]) * 60 + int(on_parts[1])
+                    if on_minutes < off_minutes:
+                        on_minutes += 24 * 60
+                    block_minutes = on_minutes - off_minutes
+                    total_block_hours += block_minutes / 60.0
+            except (ValueError, IndexError):
+                total_block_hours += 2.0
+        else:
+            total_block_hours += 2.0
+    
+    # Count crew by status
     # Count crew by status
     crew_by_status = {
-        "FLY": 0,
-        "SBY": 0,
-        "SL": 0,
-        "CSL": 0,
-        "OFF": 0,
-        "TRN": 0,
-        "LVE": 0,
-        "OTHER": 0
+        "FLY": 0, "SBY": 0, "SL": 0, "CSL": 0, "OFF": 0, "TRN": 0, "LVE": 0, "OTHER": 0
     }
     
-    for crew in standby_data:
-        status = crew.get("status", "OTHER")
-        if status in crew_by_status:
-            crew_by_status[status] += 1
-        else:
-            crew_by_status["OTHER"] += 1
+    # helper to clean duty codes
+    def get_status_from_code(code):
+        if not code: return "OTHER"
+        c = code.upper().strip()
+        if c in ["FLY", "FLT", "POS", "DHD"]: return "FLY"
+        if c in ["SBY", "SB", "R"]: return "SBY"
+        if c in ["OFF", "DO", "ADO", "X"]: return "OFF"
+        if c in ["SL", "SICK"]: return "SL"
+        if c in ["CSL"]: return "CSL"
+        if c in ["AL", "LVE"]: return "LVE"
+        if c in ["TRN", "SIM"]: return "TRN"
+        return "OTHER"
+
+    # 1. Aggegate from standby_data details first
+    if standby_data:
+        for crew in standby_data:
+            s = crew.get("status", "OTHER")
+            if s in crew_by_status: crew_by_status[s] += 1
+            else: crew_by_status["OTHER"] += 1
+
+    # 2. Iterate Crew Data
+    if crew_data:
+        # Reset to avoid double counting if we trust crew_data more
+        crew_by_status = {k: 0 for k in crew_by_status} 
+
+        for crew in crew_data:
+            d_code = crew.get("duty_code", "")
+            status = get_status_from_code(d_code)
+            
+            # Fallback
+            if status == "OTHER" and crew.get("flight_number"):
+                status = "FLY"
+                
+            if status in crew_by_status:
+                crew_by_status[status] += 1
+            else:
+                crew_by_status["OTHER"] += 1
+
+    logger.info(f"Crew Distribution Stats: {crew_by_status}")
+
+    # Calculate flights per hour (Operational Pulse) & AC Usage
+    flights_per_hour = [0] * 24
     
-    # Calculate flight metrics
-    total_flights = len(flight_data)
+    total_pax = 0
     
-    # Count unique aircraft
-    unique_aircraft = set()
-    for flight in flight_data:
-        if flight.get("aircraft_reg"):
-            unique_aircraft.add(flight["aircraft_reg"])
+    # OTP Vars
+    otp_threshold_mins = 15
+    delayed_flights = 0
+    completed_flights = 0
+    on_time_flights = 0
     
-    total_aircraft = len(unique_aircraft)
+    # AC Type Breakdown
+    ac_type_hours = {} 
     
-    # Calculate block hours (simplified - would need actual times)
-    total_block_hours = 0.0
-    for flight in flight_data:
-        # Estimate 2 hours per flight if no actual times
-        total_block_hours += 2.0
-    
-    # Calculate aircraft utilization
+    # Helper to parse time string HH:MM
+    def parse_hm(t_str):
+        if not t_str or ":" not in t_str: return None
+        try:
+            parts = t_str.split(":")
+            # ignore seconds if present
+            return int(parts[0]) * 60 + int(parts[1])
+        except ValueError:
+            return None
+
+    # Recalculate Total Block Hours from verified Ops Flights
+    recalc_total_block = 0.0
+
+    for flight in ops_flights:
+        # Pulse Chart
+        std = flight.get("std", "")
+        # Format usually HH:MM:SS or HH:MM
+        if std:
+            try:
+                parts = std.split(":")
+                if len(parts) >= 2:
+                    h = int(parts[0])
+                    if 0 <= h < 24:
+                        flights_per_hour[h] += 1
+            except ValueError:
+                pass
+        
+        # Pax
+        try:
+            pax = int(flight.get("pax_total", 0) or 0)
+            total_pax += pax
+        except (ValueError, TypeError):
+            pass
+            
+        # Block Hours Calculation 
+        blk_val = 0.0
+        
+        raw_blk_hrs = flight.get("block_hours")
+        raw_blk_time = flight.get("block_time")
+        
+        # 1. Try DB float
+        if raw_blk_hrs is not None:
+             try:
+                 blk_val = float(raw_blk_hrs)
+             except ValueError: pass
+        # 2. Try DB string HH:MM
+        elif raw_blk_time and ":" in str(raw_blk_time):
+             mins = parse_hm(str(raw_blk_time))
+             if mins is not None: blk_val = mins / 60.0
+        # 3. Fallback: Calc from ON - OFF
+        if blk_val == 0.0:
+            off = parse_hm(flight.get("off_block"))
+            on = parse_hm(flight.get("on_block"))
+            
+            if off is not None and on is not None:
+                diff = on - off
+                if diff < 0: diff += 1440 # Overnight
+                blk_val = diff / 60.0
+        
+        recalc_total_block += blk_val
+            
+        # Aggregate by AC Type
+        ac_type = str(flight.get("aircraft_type", "Unknown")).strip()
+        # Normalize: '321' -> 'A321'
+        if ac_type.isdigit() and len(ac_type) == 3:
+            ac_type = f"A{ac_type}"
+            
+        ac_type_hours[ac_type] = ac_type_hours.get(ac_type, 0.0) + blk_val
+            
+        # Completed & OTP
+        ata_str = flight.get("ata")
+        on_blk_str = flight.get("on_block")
+        
+        is_completed = False
+        completion_source = None
+        
+        if ata_str:
+            is_completed = True
+            completion_source = "ATA"
+        elif on_blk_str:
+            # Fallback completion (Gate Arrival)
+            is_completed = True
+            completion_source = "ONBLOCK"
+            
+        atd_str = flight.get("atd") 
+        
+        if is_completed:
+            completed_flights += 1
+            
+            # OTP Check: STD vs ATD (Departure OTP) logic as standard fallback
+            if atd_str and std:
+                std_mins = parse_hm(std)
+                atd_mins = parse_hm(atd_str)
+                
+                if std_mins is not None and atd_mins is not None:
+                    dep_diff = atd_mins - std_mins
+                    
+                    if dep_diff < -720: dep_diff += 1440
+                    elif dep_diff > 720: dep_diff -= 1440
+                    
+                    if dep_diff <= otp_threshold_mins:
+                        on_time_flights += 1
+                    else:
+                        delayed_flights += 1
+
+    otp_percentage = 0.0
+    otp_denominator = on_time_flights + delayed_flights
+    if otp_denominator > 0:
+        otp_percentage = (on_time_flights / otp_denominator) * 100.0
+
+    # Format AC Breakdown
+    sorted_ac = sorted(ac_type_hours.items(), key=lambda x: x[1], reverse=True)
+    ac_breakdown_html = ""
+    for k, v in sorted_ac:
+        if v > 0:
+            ac_breakdown_html += f"{k}: {v:.1f}h<br>"
+    if not ac_breakdown_html: ac_breakdown_html = "No Data"
+
     aircraft_utilization = 0.0
-    if total_aircraft > 0:
-        aircraft_utilization = round(total_block_hours / total_aircraft, 1)
-    
-    # FTL alerts
+    if total_aircraft_operation > 0:
+         aircraft_utilization = round(recalc_total_block / total_aircraft_operation, 1)
+
+    # Alerts logic remains...
     alerts = []
     for crew in crew_data:
         warning_level = crew.get("warning_level", "NORMAL")
@@ -386,19 +598,23 @@ def calculate_dashboard_summary(
                 "hours_28_day": crew.get("hours_28_day"),
                 "hours_12_month": crew.get("hours_12_month"),
             })
-    
+
     return {
-        "date": target_date.isoformat(),
         "total_crew": len(crew_data),
-        "crew_by_status": crew_by_status,
-        "total_flights": total_flights,
-        "total_aircraft": total_aircraft,
-        "aircraft_utilization": aircraft_utilization,
-        "total_block_hours": round(total_block_hours, 1),
-        "alerts_count": len(alerts),
-        "alerts": alerts[:10],  # Top 10 alerts
-        "standby_available": crew_by_status["SBY"],
+        "standby_available": crew_by_status["SBY"], # Legacy
+        "total_aircraft_operation": total_aircraft_operation, 
         "sick_leave": crew_by_status["SL"] + crew_by_status["CSL"],
+        "total_flights": total_flights,
+        "total_completed_flights": completed_flights, # KPI 4
+        "total_block_hours": round(total_block_hours, 1),
+        "ac_type_breakdown": ac_breakdown_html, # KPI 3
+        "aircraft_utilization": aircraft_utilization,
+        "crew_by_status": crew_by_status,
+        "flights_per_hour": flights_per_hour,
+        "alerts": alerts,
+        "alerts_count": len(alerts),
+        "total_pax": total_pax,
+        "otp_percentage": otp_percentage
     }
 
 
@@ -416,13 +632,17 @@ def transform_aims_crew_to_db(aims_crew: Dict[str, Any]) -> Dict[str, Any]:
     Returns:
         Formatted record for database insertion
     """
+    gender = aims_crew.get("gender", "")
+    if gender not in ["M", "F"]:
+        gender = None
+
     return {
         "crew_id": str(aims_crew.get("crew_id", "")),
         "crew_name": aims_crew.get("crew_name", ""),
         "first_name": aims_crew.get("first_name", ""),
         "last_name": aims_crew.get("last_name", ""),
         "three_letter_code": aims_crew.get("three_letter_code", ""),
-        "gender": aims_crew.get("gender", ""),
+        "gender": gender,
         "email": aims_crew.get("email", ""),
         "cell_phone": aims_crew.get("cell_phone", ""),
         "base": aims_crew.get("base", ""),
@@ -449,6 +669,16 @@ def transform_aims_flight_to_db(aims_flight: Dict[str, Any]) -> Dict[str, Any]:
         "arrival": aims_flight.get("arrival", ""),
         "aircraft_type": aims_flight.get("aircraft_type", ""),
         "aircraft_reg": aims_flight.get("aircraft_reg", ""),
+        # Detailed fields
+        "std": aims_flight.get("std", ""),
+        "sta": aims_flight.get("sta", ""),
+        "etd": aims_flight.get("etd", ""),
+        "eta": aims_flight.get("eta", ""),
+        "off_block": aims_flight.get("off_block", ""),
+        "on_block": aims_flight.get("on_block", ""),
+        "delay_code_1": aims_flight.get("delay_code_1", ""),
+        "delay_time_1": aims_flight.get("delay_time_1", 0),
+        "pax_total": aims_flight.get("pax_total", 0),
         "source": "AIMS",
         "updated_at": datetime.now().isoformat()
     }
@@ -593,19 +823,48 @@ class DataProcessor:
             List of standby records
         """
         target_date = target_date or date.today()
+        records = []
         
         if self.supabase:
+            # Query standby_records table
             try:
                 result = self.supabase.table("standby_records") \
                     .select("*") \
                     .lte("duty_start_date", target_date.isoformat()) \
                     .gte("duty_end_date", target_date.isoformat()) \
                     .execute()
-                return result.data or []
+                if result.data:
+                    for r in result.data:
+                        records.append({
+                            "crew_id": r.get("crew_id"),
+                            "crew_name": r.get("crew_name"),
+                            "status": r.get("status"),
+                            "base": r.get("base")
+                        })
             except Exception as e:
-                logger.error(f"Failed to fetch standby records: {e}")
+                logger.error(f"Failed to fetch standby_records: {e}")
+            
+            # Also query fact_roster for SBY/SL/CSL activity types
+            try:
+                date_str = target_date.isoformat()
+                result = self.supabase.table("fact_roster") \
+                    .select("*") \
+                    .gte("start_dt", f"{date_str}T00:00:00") \
+                    .lte("start_dt", f"{date_str}T23:59:59") \
+                    .in_("activity_type", ["SBY", "SL", "CSL", "SICK", "STANDBY"]) \
+                    .execute()
+                if result.data:
+                    for r in result.data:
+                        records.append({
+                            "crew_id": r.get("crew_id"),
+                            "crew_name": r.get("crew_name", ""),
+                            "status": r.get("activity_type"),
+                            "base": ""
+                        })
+            except Exception as e:
+                logger.warning(f"Failed to fetch fact_roster standby: {e}")
         
-        return []
+        return records
     
     def get_flights(self, target_date: date = None) -> List[Dict[str, Any]]:
         """
@@ -654,9 +913,108 @@ class DataProcessor:
             target_date=target_date
         )
         
+        # Override total_crew with actual count from crew_members table
+        if self.supabase:
+            try:
+                result = self.supabase.table("crew_members").select("crew_id", count="exact").execute()
+                summary["total_crew"] = result.count if result.count else len(result.data or [])
+            except Exception as e:
+                logger.warning(f"Failed to fetch crew count: {e}")
+        
         summary["data_source"] = self.data_source
         
         return summary
+
+    # =========================================================
+    # AIMS Integration Business Logic
+    # =========================================================
+
+    def calculate_28day_rolling_hours(self, crew_id: str, target_date: date = None) -> float:
+        """
+        Calculate sum(block_minutes) for last 28 days from fact_actuals.
+        
+        Logic: SUM(block_minutes) WHERE dep_actual_dt BETWEEN (Today - 28) AND Today.
+        """
+        target_date = target_date or date.today()
+        start_date = target_date - timedelta(days=28)
+        
+        if not self.supabase:
+            return 0.0
+            
+        try:
+            result = self.supabase.table("fact_actuals") \
+                .select("block_minutes") \
+                .eq("crew_id", crew_id) \
+                .gte("dep_actual_dt", start_date.isoformat()) \
+                .lte("dep_actual_dt", target_date.isoformat()) \
+                .execute()
+            
+            total_minutes = sum(row.get("block_minutes", 0) for row in result.data or [])
+            return round(total_minutes / 60.0, 2)
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate 28-day hours for {crew_id}: {e}")
+            return 0.0
+
+    def get_crew_alert_status(self, hours_28d: float) -> str:
+        """
+        Determine alert level based on 28-day hours.
+        - Yellow (WARNING): > 85 hours
+        - Red (CRITICAL): > 95 hours
+        """
+        if hours_28d > 95:
+            return "CRITICAL"
+        elif hours_28d > 85:
+            return "WARNING"
+        return "NORMAL"
+
+    def convert_to_gmt7(self, dt_str: str) -> str:
+        """Convert UTC timestamp string to GMT+7."""
+        if not dt_str:
+            return ""
+        try:
+            # Simple offset - in production use pytz
+            dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
+            dt_gmt7 = dt + timedelta(hours=7)
+            return dt_gmt7.isoformat()
+        except:
+            return dt_str
+
+    def get_roster_heatmap_data(self, days_range: int = 7) -> List[Dict[str, Any]]:
+        """
+        Fetch roster data for top crew members for a heatmap view.
+        """
+        if not self.supabase:
+            return []
+            
+        try:
+            target_date = date.today()
+            start_date = target_date - timedelta(days=days_range - 1)
+            
+            # 1. Get top 10 crew by flight hours (to have some data to show)
+            crew_result = self.supabase.table("crew_flight_hours") \
+                .select("crew_id") \
+                .order("hours_28_day", desc=True) \
+                .limit(10) \
+                .execute()
+            
+            top_crew_ids = [row["crew_id"] for row in crew_result.data or []]
+            if not top_crew_ids:
+                return []
+                
+            # 2. Get roster for these crew members
+            roster_result = self.supabase.table("fact_roster") \
+                .select("crew_id, activity_type, start_dt, end_dt") \
+                .in_("crew_id", top_crew_ids) \
+                .gte("start_dt", start_date.isoformat()) \
+                .lte("start_dt", target_date.isoformat()) \
+                .execute()
+            
+            return roster_result.data or []
+            
+        except Exception as e:
+            logger.error(f"Failed to get roster heatmap data: {e}")
+            return []
 
 
 # =========================================================

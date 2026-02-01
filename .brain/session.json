@@ -1,0 +1,48 @@
+{
+    "updated_at": "2026-02-01T23:45:00+07:00",
+    "working_on": {
+        "feature": "KPI Refinement Phase 3",
+        "task": "Final Debugging & Stabilization",
+        "status": "completed",
+        "files": [
+            "data_processor.py",
+            "templates/crew_dashboard.html",
+            "static/js/dashboard.js"
+        ],
+        "notes": "Verified all KPIs matching user logic. Charts fixed via backend parsing updates."
+    },
+    "recent_changes": [
+        {
+            "timestamp": "2026-02-01T23:30:00+07:00",
+            "type": "feature",
+            "description": "Implemented A/C Type Breakdown KPI and Completed Flights KPI",
+            "files": [
+                "data_processor.py",
+                "templates/crew_dashboard.html"
+            ]
+        },
+        {
+            "timestamp": "2026-02-01T23:40:00+07:00",
+            "type": "fix",
+            "description": "Fixed 0-values in KPIs/Charts by adding fallback logic for missing AIMS fields (block_hours, ata)",
+            "files": [
+                "data_processor.py"
+            ]
+        }
+    ],
+    "decisions_made": [
+        {
+            "decision": "Use On-Block Time as fallback for Completion",
+            "reason": "AIMS sometimes lacks ATA for arrived flights."
+        },
+        {
+            "decision": "Calculate OTP only for Completed Flights",
+            "reason": "Avoid skewing metrics with scheduled flights."
+        },
+        {
+            "decision": "Use 4x2 Grid for KPI Layout",
+            "reason": "Balance and readability."
+        }
+    ],
+    "pending_tasks": []
+}

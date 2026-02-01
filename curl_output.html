@@ -13,12 +13,76 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap"
         rel="stylesheet">
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 </head>
 
 <body>
     <div class="app-container">
-        {% include 'sidebar.html' %}
+        <aside class="sidebar">
+    <div class="sidebar-header">
+        <span class="logo-icon">✈️</span>
+        <span class="logo-text" style="font-weight: 800; letter-spacing: -0.5px; font-size: 1.1rem;">VJ
+            OPERATIONS</span>
+    </div>
+
+    <nav class="sidebar-nav" style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
+        <a href="/" class="nav-item active"
+            style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-size: 14px; font-weight: 500;">
+            <span class="icon">📊</span>
+            <span>Dashboard</span>
+        </a>
+        <a href="/" class="nav-item "
+            style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-size: 14px; font-weight: 500;">
+            <span class="icon">👥</span>
+            <span>Crew Management</span>
+        </a>
+
+        <a href="/fleet-health" class="nav-item "
+            style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-size: 14px; font-weight: 500;">
+            <span class="icon">🛠️</span>
+            <span>Fleet Health</span>
+        </a>
+        <a href="/crew-pairing" class="nav-item "
+            style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-size: 14px; font-weight: 500;">
+            <span class="icon">🤝</span>
+            <span>Crew Pairing</span>
+        </a>
+        <a href="/aircraft-swap" class="nav-item "
+            style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-size: 14px; font-weight: 500;">
+            <span class="icon">🔄</span>
+            <span>A/C Swap</span>
+        </a>
+        <a href="/data-etl" class="nav-item "
+            style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-size: 14px; font-weight: 500;">
+            <span class="icon">💾</span>
+            <span>Data Ingestion</span>
+        </a>
+
+        <div style="margin-top: auto; padding-top: 20px; border-top: 1px solid var(--border-color);">
+            <a href="/users" class="nav-item "
+                style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-size: 14px; font-weight: 500;">
+                <span class="icon">👤</span>
+                <span>User Management</span>
+            </a>
+        </div>
+    </nav>
+
+    <div class="sidebar-footer"
+        style="padding: 20px; border-top: 1px solid var(--border-color); font-size: 11px; color: var(--text-muted);">
+        <p>AIMS Ops Platform v1.2</p>
+    </div>
+</aside>
+
+<style>
+    .nav-item:hover {
+        background-color: var(--border-color);
+        color: var(--text-primary) !important;
+    }
+
+    .nav-item.active {
+        background-color: rgba(34, 197, 94, 0.1);
+        color: #4ade80 !important;
+    }
+</style>
         <div class="main-wrapper">
             <!-- Header -->
             <header class="header">
@@ -38,9 +102,6 @@
                     </div>
                 </div>
                 <div class="header-right">
-                    <button id="focus-mode-btn" class="btn btn-secondary">
-                        <span class="icon">🔍</span> Focus Mode
-                    </button>
                     <div class="data-source-toggle">
                         <span class="label">Data Source:</span>
                         <div class="toggle-group">
@@ -58,10 +119,9 @@
             <!-- Main Content -->
             <main class="main-content">
                 <!-- KPI Cards Row -->
-                <!-- KPI Cards Row - Balanced 4x2 Grid -->
                 <section class="kpi-section">
                     <div class="kpi-grid">
-                        <!-- 1. Total Crew -->
+                        <!-- Total Crew -->
                         <div class="kpi-card">
                             <div class="kpi-icon crew-icon">👥</div>
                             <div class="kpi-content">
@@ -70,44 +130,27 @@
                             </div>
                         </div>
 
-                        <!-- 2. Total Aircraft Operation (New) -->
+                        <!-- Standby Available -->
                         <div class="kpi-card">
-                            <div class="kpi-icon fleet-icon">🚀</div>
+                            <div class="kpi-icon standby-icon">📋</div>
                             <div class="kpi-content">
-                                <span class="kpi-label">Total Aircraft Operation</span>
-                                <span class="kpi-value" id="total-ac-operation">--</span>
+                                <span class="kpi-label">Standby Available</span>
+                                <span class="kpi-value" id="standby-count">--</span>
                             </div>
                         </div>
 
-                        <!-- 3. A/C Type hour (New) -->
-                        <div class="kpi-card">
-                            <div class="kpi-icon time-icon">⏱️</div>
+                        <!-- Sick Leave -->
+                        <div class="kpi-card warning">
+                            <div class="kpi-icon sick-icon">🏥</div>
                             <div class="kpi-content">
-                                <span class="kpi-label">A/C Type hour</span>
-                                <span class="kpi-value sub-value" id="ac-type-hour"
-                                    style="font-size: 0.9rem; white-space: pre-line;">--</span>
+                                <span class="kpi-label">Sick Leave</span>
+                                <span class="kpi-value" id="sick-count">--</span>
                             </div>
                         </div>
 
-                        <!-- 4. Total Flight Completed (New) -->
-                        <div class="kpi-card success">
-                            <div class="kpi-icon check-icon">✅</div>
-                            <div class="kpi-content">
-                                <span class="kpi-label">Total Flight Completed</span>
-                                <span class="kpi-value" id="total-completed">--</span>
-                            </div>
-                        </div>
 
-                        <!-- 5. Total Flights -->
-                        <div class="kpi-card">
-                            <div class="kpi-icon flight-icon">✈️</div>
-                            <div class="kpi-content">
-                                <span class="kpi-label">Total Flights</span>
-                                <span class="kpi-value" id="total-flights">--</span>
-                            </div>
-                        </div>
 
-                        <!-- 6. Block Hours -->
+                        <!-- Total Block Hours -->
                         <div class="kpi-card">
                             <div class="kpi-icon hours-icon">📊</div>
                             <div class="kpi-content">
@@ -116,21 +159,30 @@
                             </div>
                         </div>
 
-                        <!-- 7. Passenger Load (New) -->
+                        <!-- Total Flights -->
                         <div class="kpi-card">
-                            <div class="kpi-icon pax-icon">🧑‍🤝‍🧑</div>
+                            <div class="kpi-icon flight-icon">✈️</div>
                             <div class="kpi-content">
-                                <span class="kpi-label">Passenger Load</span>
-                                <span class="kpi-value" id="pax-load">--</span>
+                                <span class="kpi-label">Total Flights</span>
+                                <span class="kpi-value" id="total-flights">--</span>
                             </div>
                         </div>
 
-                        <!-- 8. OTP (New) -->
+                        <!-- Active AC -->
                         <div class="kpi-card">
-                            <div class="kpi-icon otp-icon">⏱️</div>
+                            <div class="kpi-icon fleet-icon">🚀</div>
                             <div class="kpi-content">
-                                <span class="kpi-label">OTP</span>
-                                <span class="kpi-value" id="otp-percent">--%</span>
+                                <span class="kpi-label">Active AC</span>
+                                <span class="kpi-value" id="active-ac">--</span>
+                            </div>
+                        </div>
+
+                        <!-- Utilization -->
+                        <div class="kpi-card">
+                            <div class="kpi-icon util-icon">📈</div>
+                            <div class="kpi-content">
+                                <span class="kpi-label">Utilization</span>
+                                <span class="kpi-value" id="utilization">--</span>
                             </div>
                         </div>
                     </div>
@@ -147,30 +199,10 @@
                     </div>
                 </section>
 
-                <!-- Charts Section -->
-                <section class="charts-section" id="charts-section">
-                    <div class="charts-grid">
-                        <!-- Operational Pulse (Line) -->
-                        <div class="panel chart-panel large">
-                            <div class="panel-header">
-                                <h2>Operational Pulse (Flights/Hour)</h2>
-                            </div>
-                            <div class="chart-container">
-                                <canvas id="pulseChart"></canvas>
-                            </div>
-                        </div>
-
-                        <!-- Crew Mix (Donut) -->
-                        <div class="panel chart-panel small">
-                            <div class="panel-header">
-                                <h2>Crew Distribution</h2>
-                            </div>
-                            <div class="chart-container">
-                                <canvas id="crewMixChart"></canvas>
-                            </div>
-                        </div>
-                    </div>
-                </section>
+                <!-- Flights Focus Area -->
+                <div class="focus-area">
+                    <!-- This section is now reserved for the expanded flight table below -->
+                </div>
 
 
 

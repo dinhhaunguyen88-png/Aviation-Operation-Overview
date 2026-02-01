@@ -5,6 +5,7 @@
 flask>=2.3.0
 flask-cors>=4.0.0
 gunicorn>=21.0.0
+waitress>=2.1.0
 
 # Database
 supabase>=2.0.0

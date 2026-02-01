@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>Aircraft Swap | VJ Aviation Dashboard</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link rel="stylesheet" href="/static/css/shared.css">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet" />
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght@100..700,FILL@0..1&display=swap"
+        rel="stylesheet" />
+    <script>
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "primary": "#22C55E",
+                        "secondary": "#EF4444",
+                        "background-dark": "#020617",
+                        "surface-dark": "#0f172a",
+                        "border-dark": "#1e293b",
+                    },
+                    fontFamily: {
+                        "technical": ["Fira Code", "monospace"],
+                        "sans": ["Fira Sans", "sans-serif"]
+                    },
+                },
+            },
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Fira Sans', sans-serif;
+        }
+
+        .swap-bar {
+            background: linear-gradient(to right, #EF4444, #22C55E);
+        }
+    </style>
+</head>
+
+<body class="bg-background-dark text-white min-h-screen">
+    <div class="app-container">
+        {% include 'sidebar.html' %}
+        <div class="main-wrapper">
+            <!-- Header -->
+            <header
+                class="px-10 py-6 border-b border-[#263537] bg-background-dark/60 backdrop-blur-sm sticky top-0 z-30">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <h1 class="text-2xl font-bold tracking-tight">Aircraft Swap Analysis</h1>
+                        <p class="text-sm text-[#8aa3a6]">Monitoring last-minute equipment changes and operational
+                            recovery.</p>
+                    </div>
+                    <div class="flex gap-3">
+                        <div class="flex bg-[#1e293b] p-1 rounded-lg">
+                            <button class="px-4 py-1.5 rounded-md text-xs font-bold text-[#8aa3a6]">24h</button>
+                            <button
+                                class="px-4 py-1.5 rounded-md text-xs font-bold bg-primary text-[#111f22]">7d</button>
+                            <button class="px-4 py-1.5 rounded-md text-xs font-bold text-[#8aa3a6]">30d</button>
+                        </div>
+                        <button
+                            class="flex items-center gap-2 px-4 h-9 bg-[#1e293b] hover:bg-white/5 rounded-lg text-sm transition-colors">
+                            <span class="material-symbols-outlined text-lg">download</span>
+                            Export
+                        </button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="flex-1 px-10 py-8 max-w-7xl mx-auto w-full">
+                <!-- Summary Bar -->
+                <section class="mb-8">
+                    <div class="grid grid-cols-4 gap-4">
+                        <div
+                            class="bg-surface-dark border border-[#1e293b] rounded-xl p-6 hover:border-secondary/40 transition-colors">
+                            <div class="flex justify-between items-start mb-3">
+                                <p class="text-[#8aa3a6] text-sm font-semibold">Total Swaps</p>
+                                <span class="material-symbols-outlined text-secondary text-xl">swap_horiz</span>
+                            </div>
+                            <h3 class="text-3xl font-bold text-white">42</h3>
+                            <p class="text-xs text-secondary mt-1">↑ 8.2% from last period</p>
+                        </div>
+                        <div
+                            class="bg-surface-dark border border-[#263537] rounded-xl p-6 hover:border-primary/40 transition-colors">
+                            <div class="flex justify-between items-start mb-3">
+                                <p class="text-[#8aa3a6] text-sm font-semibold">Impacted Flights</p>
+                                <span class="material-symbols-outlined text-primary text-xl">flight</span>
+                            </div>
+                            <h3 class="text-3xl font-bold text-white">117</h3>
+                            <p class="text-xs text-primary mt-1">↓ 3.1% from last period</p>
+                        </div>
+                        <div
+                            class="bg-surface-dark border border-[#1e293b] rounded-xl p-6 hover:border-secondary/40 transition-colors">
+                            <div class="flex justify-between items-start mb-3">
+                                <p class="text-[#8aa3a6] text-sm font-semibold">Avg Swap Time</p>
+                                <span class="material-symbols-outlined text-secondary text-xl">schedule</span>
+                            </div>
+                            <h3 class="text-3xl font-bold text-white">3.2h</h3>
+                            <p class="text-xs text-secondary mt-1">Before scheduled departure</p>
+                        </div>
+                        <div
+                            class="bg-surface-dark border border-[#263537] rounded-xl p-6 hover:border-primary/40 transition-colors">
+                            <div class="flex justify-between items-start mb-3">
+                                <p class="text-[#8aa3a6] text-sm font-semibold">Recovery Rate</p>
+                                <span class="material-symbols-outlined text-primary text-xl">check_circle</span>
+                            </div>
+                            <h3 class="text-3xl font-bold text-primary">94.2%</h3>
+                            <p class="text-xs text-primary mt-1">On-time recovery after swap</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Analytics Grid -->
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                    <!-- Swap Reasons -->
+                    <div class="bg-surface-dark border border-[#263537] rounded-xl p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-bold">Swap Reasons Breakdown</h3>
+                            <span class="text-xs text-[#8aa3a6]">By category</span>
+                        </div>
+                        <div class="space-y-4">
+                            <div class="flex items-center gap-4">
+                                <span class="w-24 text-sm text-[#8aa3a6]">Maintenance</span>
+                                <div class="flex-1 h-6 bg-[#1e293b] rounded-full relative overflow-hidden">
+                                    <div class="absolute inset-y-0 left-0 w-[45%] bg-secondary rounded-full"></div>
+                                </div>
+                                <span class="w-12 text-sm font-bold text-right">45%</span>
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <span class="w-24 text-sm text-[#8aa3a6]">Weather</span>
+                                <div class="flex-1 h-6 bg-[#1e293b] rounded-full relative overflow-hidden">
+                                    <div class="absolute inset-y-0 left-0 w-[25%] bg-primary rounded-full"></div>
+                                </div>
+                                <span class="w-12 text-sm font-bold text-right">25%</span>
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <span class="w-24 text-sm text-[#8aa3a6]">Crew</span>
+                                <div class="flex-1 h-6 bg-[#1e293b] rounded-full relative overflow-hidden">
+                                    <div class="absolute inset-y-0 left-0 w-[18%] bg-secondary rounded-full"></div>
+                                </div>
+                                <span class="w-12 text-sm font-bold text-right">18%</span>
+                            </div>
+                            <div class="flex items-center gap-4">
+                                <span class="w-24 text-sm text-[#8aa3a6]">Operational</span>
+                                <div class="flex-1 h-6 bg-[#1e293b] rounded-full relative overflow-hidden">
+                                    <div class="absolute inset-y-0 left-0 w-[12%] bg-[#8aa3a6] rounded-full"></div>
+                                </div>
+                                <span class="w-12 text-sm font-bold text-right">12%</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Top Impacted Tail Numbers -->
+                    <div class="bg-surface-dark border border-[#263537] rounded-xl p-6">
+                        <div class="flex items-center justify-between mb-6">
+                            <h3 class="text-lg font-bold">Top Impacted Tail Numbers</h3>
+                            <span class="text-xs text-[#8aa3a6]">Most frequent swaps</span>
+                        </div>
+                        <div class="space-y-3">
+                            <div
+                                class="flex items-center justify-between p-3 bg-[#263537]/50 rounded-lg hover:bg-[#263537] transition-colors">
+                                <div class="flex items-center gap-4">
+                                    <span class="text-2xl font-bold text-secondary">1</span>
+                                    <div>
+                                        <span class="text-sm font-bold text-white">VN-A888</span>
+                                        <span class="text-xs text-[#8aa3a6] ml-2">A350-900</span>
+                                    </div>
+                                </div>
+                                <span class="bg-secondary/20 text-secondary px-3 py-1 rounded text-xs font-bold">12
+                                    swaps</span>
+                            </div>
+                            <div
+                                class="flex items-center justify-between p-3 bg-[#263537]/50 rounded-lg hover:bg-[#263537] transition-colors">
+                                <div class="flex items-center gap-4">
+                                    <span class="text-2xl font-bold text-[#f59e0b]">2</span>
+                                    <div>
+                                        <span class="text-sm font-bold text-white">VN-A391</span>
+                                        <span class="text-xs text-[#8aa3a6] ml-2">B787-10</span>
+                                    </div>
+                                </div>
+                                <span class="bg-[#f59e0b]/20 text-[#f59e0b] px-3 py-1 rounded text-xs font-bold">8
+                                    swaps</span>
+                            </div>
+                            <div
+                                class="flex items-center justify-between p-3 bg-[#263537]/50 rounded-lg hover:bg-[#263537] transition-colors">
+                                <div class="flex items-center gap-4">
+                                    <span class="text-2xl font-bold text-primary">3</span>
+                                    <div>
+                                        <span class="text-sm font-bold text-white">VN-A672</span>
+                                        <span class="text-xs text-[#8aa3a6] ml-2">A321neo</span>
+                                    </div>
+                                </div>
+                                <span class="bg-primary/20 text-primary px-3 py-1 rounded text-xs font-bold">6
+                                    swaps</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Swap Log Table -->
+                <section class="bg-surface-dark border border-[#263537] rounded-xl overflow-hidden">
+                    <div class="p-6 border-b border-[#263537] flex justify-between items-center">
+                        <h3 class="text-lg font-bold">Swap Event Log</h3>
+                        <div class="flex gap-2">
+                            <button
+                                class="flex items-center gap-2 px-3 py-1.5 bg-[#263537] hover:bg-[#35494c] rounded-lg text-sm">
+                                <span class="material-symbols-outlined text-sm">filter_list</span>
+                                Filter
+                            </button>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left">
+                            <thead class="bg-[#0f1a1c]">
+                                <tr>
+                                    <th class="px-6 py-4 text-xs font-semibold text-[#8aa3a6] uppercase">Event ID</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-[#8aa3a6] uppercase">Flight</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-[#8aa3a6] uppercase">Original A/C
+                                    </th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-[#8aa3a6] uppercase">Swapped A/C
+                                    </th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-[#8aa3a6] uppercase">Reason</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-[#8aa3a6] uppercase">Impact</th>
+                                    <th class="px-6 py-4 text-xs font-semibold text-[#8aa3a6] uppercase">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-[#263537]">
+                                <tr class="hover:bg-primary/5 transition-colors">
+                                    <td class="px-6 py-4 font-mono text-sm text-primary">#SW-0024</td>
+                                    <td class="px-6 py-4 font-mono text-sm">VN102</td>
+                                    <td class="px-6 py-4 text-sm">VN-A888</td>
+                                    <td class="px-6 py-4 text-sm">VN-A899</td>
+                                    <td class="px-6 py-4">
+                                        <span
+                                            class="bg-secondary/20 text-secondary text-xs px-2 py-1 rounded">Maintenance</span>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-secondary">-45 min delay</td>
+                                    <td class="px-6 py-4">
+                                        <span
+                                            class="bg-primary/20 text-primary text-xs px-2 py-1 rounded font-bold">Recovered</span>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-primary/5 transition-colors">
+                                    <td class="px-6 py-4 font-mono text-sm text-primary">#SW-0023</td>
+                                    <td class="px-6 py-4 font-mono text-sm">VN456</td>
+                                    <td class="px-6 py-4 text-sm">VN-A391</td>
+                                    <td class="px-6 py-4 text-sm">VN-A520</td>
+                                    <td class="px-6 py-4">
+                                        <span
+                                            class="bg-primary/20 text-primary text-xs px-2 py-1 rounded">Weather</span>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-primary">On-time</td>
+                                    <td class="px-6 py-4">
+                                        <span
+                                            class="bg-primary/20 text-primary text-xs px-2 py-1 rounded font-bold">Recovered</span>
+                                    </td>
+                                </tr>
+                                <tr class="hover:bg-primary/5 transition-colors">
+                                    <td class="px-6 py-4 font-mono text-sm text-primary">#SW-0022</td>
+                                    <td class="px-6 py-4 font-mono text-sm">VN789</td>
+                                    <td class="px-6 py-4 text-sm">VN-A672</td>
+                                    <td class="px-6 py-4 text-sm">VN-A720</td>
+                                    <td class="px-6 py-4">
+                                        <span
+                                            class="bg-[#f59e0b]/20 text-[#f59e0b] text-xs px-2 py-1 rounded">Crew</span>
+                                    </td>
+                                    <td class="px-6 py-4 text-sm text-[#f59e0b]">-1h 20min</td>
+                                    <td class="px-6 py-4">
+                                        <span
+                                            class="bg-[#f59e0b]/20 text-[#f59e0b] text-xs px-2 py-1 rounded font-bold">Pending</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="p-4 border-t border-[#263537] flex justify-between items-center">
+                        <p class="text-xs text-[#8aa3a6]">Showing 1-10 of 42 swap events</p>
+                        <div class="flex gap-2">
+                            <button class="px-3 py-1 rounded border border-[#263537] text-xs">Previous</button>
+                            <button class="px-3 py-1 rounded bg-primary text-[#111f22] text-xs font-bold">1</button>
+                            <button class="px-3 py-1 rounded border border-[#263537] text-xs">2</button>
+                            <button class="px-3 py-1 rounded border border-[#263537] text-xs">Next</button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </div><!-- End main-wrapper -->
+    </div><!-- End app-container -->
+</body>
+
+</html>
