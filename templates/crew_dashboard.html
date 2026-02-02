@@ -71,11 +71,12 @@
                         </div>
 
                         <!-- 2. Total Aircraft Operation (New) -->
-                        <div class="kpi-card">
+                        <div class="kpi-card clickable" id="aircraft-operation-card" style="cursor: pointer;">
                             <div class="kpi-icon fleet-icon">🚀</div>
                             <div class="kpi-content">
                                 <span class="kpi-label">Total Aircraft Operation</span>
                                 <span class="kpi-value" id="total-ac-operation">--</span>
+                                <span class="kpi-hint" style="font-size: 0.7rem; opacity: 0.7;">Click for details</span>
                             </div>
                         </div>
 
@@ -136,38 +137,36 @@
                     </div>
                 </section>
 
-                <!-- Alerts Section -->
-                <section class="alerts-section" id="alerts-section" style="display: none;">
-                    <div class="section-header">
-                        <h2>⚠️ Active Alerts</h2>
-                        <span class="badge badge-warning" id="alerts-count">0</span>
-                    </div>
-                    <div class="alerts-container" id="alerts-list">
-                        <!-- Alert items populated by JS -->
-                    </div>
-                </section>
 
-                <!-- Charts Section -->
+
+                <!-- Charts Section: Departure Slots by Base -->
                 <section class="charts-section" id="charts-section">
-                    <div class="charts-grid">
-                        <!-- Operational Pulse (Line) -->
-                        <div class="panel chart-panel large">
-                            <div class="panel-header">
-                                <h2>Operational Pulse (Flights/Hour)</h2>
-                            </div>
-                            <div class="chart-container">
-                                <canvas id="pulseChart"></canvas>
-                            </div>
+                    <div class="panel chart-panel full-width" style="padding: 1rem;">
+                        <h3 style="margin: 0 0 1rem 0; font-size: 0.95rem; font-weight: 600;">
+                            Departure Slots by Base - Time of Day
+                        </h3>
+
+                        <!-- Legend -->
+                        <div style="display: flex; gap: 1.5rem; margin-bottom: 0.5rem; font-size: 0.75rem;">
+                            <span><span
+                                    style="display:inline-block;width:12px;height:12px;background:#ef4444;border-radius:2px;margin-right:4px;"></span>SGN</span>
+                            <span><span
+                                    style="display:inline-block;width:12px;height:12px;background:#eab308;border-radius:2px;margin-right:4px;"></span>HAN</span>
+                            <span><span
+                                    style="display:inline-block;width:12px;height:12px;background:#3b82f6;border-radius:2px;margin-right:4px;"></span>DAD</span>
                         </div>
 
-                        <!-- Crew Mix (Donut) -->
-                        <div class="panel chart-panel small">
-                            <div class="panel-header">
-                                <h2>Crew Distribution</h2>
-                            </div>
-                            <div class="chart-container">
-                                <canvas id="crewMixChart"></canvas>
-                            </div>
+                        <!-- Bar Chart Container -->
+                        <div id="slots-bar-chart"
+                            style="display: flex; align-items: flex-end; gap: 2px; height: 150px; padding: 10px 0; border-bottom: 1px solid rgba(255,255,255,0.1);">
+                            <!-- Bars will be inserted by JavaScript -->
+                            <div style="color: rgba(255,255,255,0.5); font-size: 0.8rem;">Loading...</div>
+                        </div>
+
+                        <!-- X-axis labels -->
+                        <div id="slots-x-axis"
+                            style="display: flex; gap: 2px; font-size: 0.65rem; color: rgba(255,255,255,0.5); padding-top: 4px;">
+                            <!-- Labels will be inserted by JavaScript -->
                         </div>
                     </div>
                 </section>
@@ -301,6 +300,51 @@
                     <div class="modal-footer">
                         <button class="btn btn-secondary" id="cancel-upload">Cancel</button>
                         <button class="btn btn-primary" id="submit-upload">Upload</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Aircraft Modal -->
+            <div class="modal-overlay" id="aircraft-modal" style="display: none;">
+                <div class="modal-content" style="max-width: 900px; max-height: 80vh; overflow: auto;">
+                    <div class="modal-header"
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <h3 style="margin: 0;">✈️ Aircraft Operating Today</h3>
+                            <select id="ac-type-filter" class="select-input"
+                                style="padding: 0.3rem 0.5rem; font-size: 0.85rem;">
+                                <option value="">All Types</option>
+                                <option value="321">A321</option>
+                                <option value="320">A320</option>
+                                <option value="32W">A321XLR (32W)</option>
+                                <option value="330">A330</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-secondary" id="close-aircraft-modal"
+                            style="padding: 0.3rem 0.8rem;">✕</button>
+                    </div>
+                    <div class="modal-body">
+                        <table class="data-table" id="aircraft-table" style="width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th>Reg</th>
+                                    <th>Type</th>
+                                    <th>Flights</th>
+                                    <th>Block Hrs</th>
+                                    <th>Util %</th>
+                                    <th>First → Last</th>
+                                    <th>Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="aircraft-table-body">
+                                <tr>
+                                    <td colspan="7" style="text-align: center;">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="modal-footer" style="margin-top: 1rem; text-align: right;">
+                        <span id="aircraft-total" style="opacity: 0.7;">Total: -- aircraft</span>
                     </div>
                 </div>
             </div>

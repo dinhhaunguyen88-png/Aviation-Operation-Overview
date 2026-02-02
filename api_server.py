@@ -233,20 +233,50 @@ def _sync_flight_history(target_date):
     return flight_block_map
 
 def _sync_today_flights(target_date):
-    """Fetch and upsert today's flights."""
+    """Fetch and upsert today's flights + tomorrow's early flights (00:00-03:59)."""
     logger.info("Syncing today's flights for display...")
+    
     try:
         today_flights = data_processor.aims_client.get_day_flights(target_date)
-        if today_flights and data_processor.supabase:
-             flight_records = []
-             seen = set()
-             for flt in today_flights:
-                 f_num = flt.get("flight_number", "")
-                 key = (target_date.isoformat(), f_num)
-                 if key not in seen:
-                     seen.add(key)
-                     flight_records.append({
-                        "flight_date": target_date.isoformat(),
+        all_flights = list(today_flights) if today_flights else []
+        
+        # Also fetch tomorrow's flights for 00:00-03:59 (part of today's Ops Day)
+        tomorrow = target_date + timedelta(days=1)
+        try:
+            tomorrow_flights = data_processor.aims_client.get_day_flights(tomorrow)
+            if tomorrow_flights:
+                # Filter only 00:00-03:59
+                for flt in tomorrow_flights:
+                    std = flt.get("std", "")
+                    if std and ":" in std:
+                        try:
+                            hour = int(std.split(":")[0])
+                            if hour < 4:  # 00:00 to 03:59
+                                all_flights.append(flt)
+                        except:
+                            pass
+        except Exception as e:
+            logger.warning(f"Could not fetch tomorrow's flights: {e}")
+        
+        if all_flights and data_processor.supabase:
+            flight_records = []
+            seen = set()
+            
+            for flt in all_flights:
+                f_num = flt.get("flight_number", "")
+                f_date = flt.get("flight_date", target_date.isoformat())
+                
+                # Handle flight_date properly
+                if hasattr(f_date, 'isoformat'):
+                    f_date = f_date.isoformat()
+                elif not f_date:
+                    f_date = target_date.isoformat()
+                
+                key = (f_date, f_num)
+                if key not in seen:
+                    seen.add(key)
+                    flight_records.append({
+                        "flight_date": f_date,
                         "flight_number": f_num,
                         "departure": flt.get("departure", ""),
                         "arrival": flt.get("arrival", ""),
@@ -260,12 +290,90 @@ def _sync_today_flights(target_date):
                         "on_block": flt.get("on_block"),
                         "status": _calculate_flight_status(flt),
                         "source": "AIMS"
-                     })
-             if flight_records:
-                  data_processor.supabase.table("flights").upsert(flight_records, on_conflict="flight_date,flight_number").execute()
-                  logger.info(f"Upserted {len(flight_records)} flights for today")
+                    })
+            
+            if flight_records:
+                data_processor.supabase.table("flights").upsert(
+                    flight_records, 
+                    on_conflict="flight_date,flight_number"
+                ).execute()
+                logger.info(f"Upserted {len(flight_records)} flights for ops day")
+                
+                # Sync leg_members for crew assignments
+                _sync_flight_crew(flight_records, target_date)
+                
     except Exception as e:
         logger.error(f"Failed today's flights: {e}")
+
+
+def _sync_flight_crew(flight_records, target_date):
+    """
+    Sync crew assignments from leg_members API for each flight.
+    Stores in flight_crew table for crew counting.
+    """
+    if not data_processor.supabase or not data_processor.aims_client:
+        return
+    
+    logger.info(f"Syncing crew for {len(flight_records)} flights...")
+    
+    crew_records = []
+    unique_crew_ids = set()
+    
+    # Limit API calls - sample first N flights if too many
+    sample_flights = flight_records[:50]  # Process max 50 flights to avoid timeout
+    
+    for flt in sample_flights:
+        try:
+            f_date_str = flt.get("flight_date", target_date.isoformat())
+            f_num = flt.get("flight_number", "")
+            dep = flt.get("departure", "")
+            
+            if not f_num or not dep:
+                continue
+            
+            # Parse date
+            if isinstance(f_date_str, str):
+                f_date = datetime.strptime(f_date_str, "%Y-%m-%d").date()
+            else:
+                f_date = f_date_str
+            
+            # Get leg members
+            time.sleep(0.3)  # Throttle API calls
+            crew = data_processor.aims_client.get_leg_members(
+                flight_date=f_date,
+                flight_number=f_num,
+                dep_airport=dep
+            )
+            
+            for c in crew:
+                crew_id = c.get("crew_id", "")
+                if crew_id:
+                    unique_crew_ids.add(crew_id)
+                    crew_records.append({
+                        "flight_date": f_date_str,
+                        "flight_number": f_num,
+                        "departure": dep,
+                        "crew_id": crew_id,
+                        "crew_name": c.get("crew_name", ""),
+                        "position": c.get("position", ""),
+                        "category": c.get("category", ""),
+                        "source": "AIMS"
+                    })
+                    
+        except Exception as e:
+            logger.warning(f"Failed leg_members for {flt.get('flight_number')}: {e}")
+            continue
+    
+    # Upsert to flight_crew table
+    if crew_records:
+        try:
+            data_processor.supabase.table("flight_crew").upsert(
+                crew_records,
+                on_conflict="flight_date,flight_number,departure,crew_id"
+            ).execute()
+            logger.info(f"Synced {len(crew_records)} crew assignments ({len(unique_crew_ids)} unique crew)")
+        except Exception as e:
+            logger.error(f"Failed to upsert flight_crew: {e}")
 
 def _calculate_flight_status(flt):
     """
@@ -489,6 +597,11 @@ def api_response(data=None, error=None, status=200):
 # Health & Status Endpoints
 # =========================================================
 
+@app.route('/chart-test')
+def chart_test():
+    """Chart.js test page for debugging."""
+    return render_template('chart_test.html')
+
 @app.route('/health')
 def health_check():
     """Health check endpoint."""
@@ -552,6 +665,24 @@ def get_dashboard_summary():
         return api_response(summary)
     except Exception as e:
         logger.error(f"Dashboard summary failed: {e}")
+        return api_response(error=str(e), status=500)
+
+
+@app.route('/api/aircraft/daily-summary')
+def get_aircraft_daily_summary():
+    """
+    Get daily summary of all operating aircraft.
+    
+    Query params:
+        date: YYYY-MM-DD format (optional, defaults to today)
+    """
+    target_date = parse_date_param(request.args.get('date'))
+    
+    try:
+        summary = data_processor.get_aircraft_summary(target_date)
+        return api_response(summary)
+    except Exception as e:
+        logger.error(f"Aircraft summary failed: {e}")
         return api_response(error=str(e), status=500)
 
 

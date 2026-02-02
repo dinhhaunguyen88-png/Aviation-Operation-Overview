@@ -103,16 +103,7 @@ async function loadDashboardSummary() {
         updateKPI('pax-load', data.total_pax ? data.total_pax.toLocaleString() : '0');
         updateKPI('otp-percent', (data.otp_percentage || 0).toFixed(1) + '%');
 
-        // Update alerts
-        const alertSection = document.getElementById('alerts-section');
-        const alertCount = document.getElementById('alerts-count');
-        if (data.alerts && data.alerts.length > 0) {
-            if (alertSection) alertSection.style.display = 'block';
-            if (alertCount) alertCount.textContent = data.alerts_count;
-            renderAlerts(data.alerts);
-        } else {
-            if (alertSection) alertSection.style.display = 'none';
-        }
+
 
         // Update last sync time
         const syncEl = document.getElementById('last-sync');
@@ -121,6 +112,7 @@ async function loadDashboardSummary() {
         }
 
         // Update Charts
+        console.log('[DEBUG] loadDashboardSummary - slots_by_base:', JSON.stringify(data.slots_by_base));
         updateCharts(data);
 
     } catch (error) {
@@ -277,15 +269,7 @@ async function loadFlights() {
 // Render Functions
 // =====================================================
 
-function renderAlerts(alerts) {
-    const container = document.getElementById('alerts-list');
-    container.innerHTML = alerts.map(alert => `
-        <div class="alert-item ${alert.type.includes('CRITICAL') ? 'critical' : 'warning'}">
-            <span>${alert.crew_name || alert.crew_id}</span>
-            <span>${alert.hours_28_day}h (28d)</span>
-        </div>
-    `).join('');
-}
+
 
 function renderFTLTable(tbodyId, data, hoursField) {
     const tbody = document.getElementById(tbodyId);
@@ -517,133 +501,209 @@ function initializeDashboard() {
 }
 
 // =====================================================
-// Chart.js Configuration & Logic
+// Departure Slots Bar Chart (Pure CSS)
 // =====================================================
 
-let chartInstances = {
-    pulse: null,
-    crewMix: null
-};
+function renderSlotsBarChart(slotsData) {
+    const container = document.getElementById('slots-bar-chart');
+    const xAxisContainer = document.getElementById('slots-x-axis');
 
-function _unsafeInitCharts() {
-    // Shared Options
-    Chart.defaults.color = '#94a3b8';
-    Chart.defaults.font.family = 'Inter';
+    if (!container || !slotsData) {
+        console.log('[DEBUG] renderSlotsBarChart: container or data missing');
+        return;
+    }
 
-    // 1. Operational Pulse (Line)
-    const ctxPulse = document.getElementById('pulseChart').getContext('2d');
-    chartInstances.pulse = new Chart(ctxPulse, {
-        type: 'line',
-        data: {
-            labels: Array.from({ length: 24 }, (_, i) => `${i}:00`),
-            datasets: [{
-                label: 'Flights',
-                data: [], // Populated later
-                borderColor: '#3b82f6',
-                backgroundColor: 'rgba(59, 130, 246, 0.1)',
-                borderWidth: 2,
-                tension: 0.4,
-                fill: true,
-                pointBackgroundColor: '#3b82f6',
-                pointRadius: 0,
-                pointHoverRadius: 6
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: { display: false },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false,
-                    backgroundColor: 'rgba(15, 23, 42, 0.9)',
-                    titleColor: '#f8fafc',
-                    bodyColor: '#3b82f6',
-                    borderColor: 'rgba(255,255,255,0.1)',
-                    borderWidth: 1
-                }
-            },
-            scales: {
-                y: {
-                    beginAtZero: true,
-                    grid: { color: 'rgba(255, 255, 255, 0.05)' }
-                },
-                x: {
-                    grid: { display: false }
-                }
-            }
-        }
-    });
+    const sgn = slotsData.SGN || Array(24).fill(0);
+    const han = slotsData.HAN || Array(24).fill(0);
+    const dad = slotsData.DAD || Array(24).fill(0);
 
-    // 2. Crew Mix (Donut)
-    const ctxMix = document.getElementById('crewMixChart').getContext('2d');
-    chartInstances.crewMix = new Chart(ctxMix, {
-        type: 'doughnut',
-        data: {
-            labels: ['Flying', 'Standby', 'Sick/CSL', 'Off/Other'],
-            datasets: [{
-                data: [0, 0, 0, 0],
-                backgroundColor: [
-                    '#3b82f6', // Fly (Blue)
-                    '#10b981', // SBY (Green)
-                    '#ef4444', // Sick (Red)
-                    '#64748b'  // Off (Gray)
-                ],
-                borderWidth: 0,
-                hoverOffset: 4
-            }]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '70%',
-            plugins: {
-                legend: {
-                    position: 'right',
-                    labels: { boxWidth: 12, padding: 15 }
-                }
-            }
-        }
-    });
+    // Find max value for scaling
+    const allValues = [...sgn, ...han, ...dad];
+    const maxVal = Math.max(...allValues, 1); // At least 1 to avoid division by zero
+
+    console.log('[DEBUG] renderSlotsBarChart - max:', maxVal, 'SGN total:', sgn.reduce((a, b) => a + b, 0));
+
+    // Clear container
+    container.innerHTML = '';
+    xAxisContainer.innerHTML = '';
+
+    // Only show hours 4-23 (operational hours)
+    const startHour = 4;
+    const endHour = 23;
+    const containerHeight = 130; // pixels
+
+    for (let hour = startHour; hour <= endHour; hour++) {
+        // Create wrapper with label + bars
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; height: 100%;';
+
+        // Total count label on top
+        const sgnVal = sgn[hour] || 0;
+        const hanVal = han[hour] || 0;
+        const dadVal = dad[hour] || 0;
+        const totalVal = sgnVal + hanVal + dadVal;
+
+        const countLabel = document.createElement('div');
+        countLabel.style.cssText = 'font-size: 0.6rem; color: rgba(255,255,255,0.7); margin-bottom: 2px; height: 14px;';
+        countLabel.textContent = totalVal > 0 ? totalVal : '';
+
+        // Bar group
+        const group = document.createElement('div');
+        group.style.cssText = 'display: flex; gap: 1px; align-items: flex-end; flex: 1; width: 100%;';
+
+        // SGN bar (red) - use PIXEL heights
+        const sgnHeightPx = Math.max((sgnVal / maxVal) * containerHeight, sgnVal > 0 ? 5 : 0);
+        const sgnBar = document.createElement('div');
+        sgnBar.style.cssText = `flex: 1; background: #ef4444; height: ${sgnHeightPx}px; border-radius: 2px 2px 0 0; transition: height 0.3s ease; cursor: pointer;`;
+        sgnBar.title = `SGN ${hour}:00 - ${sgnVal} flights`;
+
+        // HAN bar (yellow)
+        const hanHeightPx = Math.max((hanVal / maxVal) * containerHeight, hanVal > 0 ? 5 : 0);
+        const hanBar = document.createElement('div');
+        hanBar.style.cssText = `flex: 1; background: #eab308; height: ${hanHeightPx}px; border-radius: 2px 2px 0 0; transition: height 0.3s ease; cursor: pointer;`;
+        hanBar.title = `HAN ${hour}:00 - ${hanVal} flights`;
+
+        // DAD bar (blue)
+        const dadHeightPx = Math.max((dadVal / maxVal) * containerHeight, dadVal > 0 ? 5 : 0);
+        const dadBar = document.createElement('div');
+        dadBar.style.cssText = `flex: 1; background: #3b82f6; height: ${dadHeightPx}px; border-radius: 2px 2px 0 0; transition: height 0.3s ease; cursor: pointer;`;
+        dadBar.title = `DAD ${hour}:00 - ${dadVal} flights`;
+
+        group.appendChild(sgnBar);
+        group.appendChild(hanBar);
+        group.appendChild(dadBar);
+
+        wrapper.appendChild(countLabel);
+        wrapper.appendChild(group);
+        container.appendChild(wrapper);
+
+        // X-axis label (show every 2 hours)
+        const label = document.createElement('div');
+        label.style.cssText = 'flex: 1; text-align: center; min-width: 0;';
+        label.textContent = hour % 2 === 0 ? `${hour}:00` : '';
+        xAxisContainer.appendChild(label);
+    }
 }
 
-function _unsafeUpdateCharts(data) {
+function updateCharts(data) {
     if (!data) return;
 
-    // Update Pulse Chart
-    if (chartInstances.pulse && data.flights_per_hour) {
-        chartInstances.pulse.data.datasets[0].data = data.flights_per_hour;
-        chartInstances.pulse.update();
+    // Render CSS-based bar chart
+    if (data.slots_by_base) {
+        console.log('[DEBUG] updateCharts - SGN[0]:', data.slots_by_base.SGN?.[0], 'max SGN:', Math.max(...(data.slots_by_base.SGN || [])));
+        renderSlotsBarChart(data.slots_by_base);
+    } else {
+        console.log('[DEBUG] updateCharts - slots_by_base is NULL or UNDEFINED');
     }
+}
 
-    // Update Crew Mix Chart
-    if (chartInstances.crewMix && data.crew_by_status) {
-        const stats = data.crew_by_status;
-        const flying = stats.FLY || 0;
-        const sby = stats.SBY || 0;
-        const sick = (stats.SL || 0) + (stats.CSL || 0);
-        const other = (stats.OFF || 0) + (stats.LVE || 0) + (stats.TRN || 0) + (stats.OTHER || 0);
-
-        chartInstances.crewMix.data.datasets[0].data = [flying, sby, sick, other];
-        chartInstances.crewMix.update();
-    }
+function initCharts() {
+    // No longer using Chart.js - using pure CSS bars
+    console.log('[DEBUG] initCharts - using CSS bar chart (no Chart.js needed)');
 }
 
 // Initialize when DOM is ready
 document.addEventListener('DOMContentLoaded', initializeDashboard);
 
 
-// Safe Wrappers for Chart Functions
-function initCharts() {
-    try {
-        if (typeof Chart === 'undefined') { console.warn('Chart.js missing'); return; }
-        _unsafeInitCharts();
-    } catch (e) { console.error('InitCharts failed:', e); }
+// =====================================================
+// Aircraft Modal Functions
+// =====================================================
+
+function openAircraftModal() {
+    const modal = document.getElementById('aircraft-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        loadAircraftData();
+    }
 }
 
-function updateCharts(data) {
-    try {
-        _unsafeUpdateCharts(data);
-    } catch (e) { console.error('UpdateCharts failed:', e); }
+function closeAircraftModal() {
+    const modal = document.getElementById('aircraft-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
 }
+
+async function loadAircraftData() {
+    const tbody = document.getElementById('aircraft-table-body');
+    const totalSpan = document.getElementById('aircraft-total');
+    const typeFilter = document.getElementById('ac-type-filter');
+    const selectedType = typeFilter ? typeFilter.value : '';
+
+    try {
+        const data = await apiCall(`/api/aircraft/daily-summary?date=${state.selectedDate}`);
+
+        if (!data.aircraft || data.aircraft.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="7" style="text-align: center;">No aircraft data</td></tr>';
+            totalSpan.textContent = 'Total: 0 aircraft';
+            return;
+        }
+
+        // Filter by selected type
+        let filteredAircraft = data.aircraft;
+        if (selectedType) {
+            filteredAircraft = data.aircraft.filter(ac => {
+                // Exact match for type (case insensitive)
+                const acType = (ac.type || '').toString().toUpperCase().trim();
+                const filterType = selectedType.toUpperCase().trim();
+                return acType === filterType;
+            });
+        }
+
+        let html = '';
+        filteredAircraft.forEach(ac => {
+            const statusClass = ac.status === 'FLYING' ? 'status-active' : 'status-ground';
+            const statusIcon = ac.status === 'FLYING' ? '✈️' : '🅿️';
+
+            html += `
+                <tr data-type="${ac.type}">
+                    <td><strong>${ac.reg}</strong></td>
+                    <td>${ac.type}</td>
+                    <td style="text-align: center;">${ac.flight_count}</td>
+                    <td style="text-align: center;">${ac.block_hours}h</td>
+                    <td style="text-align: center;">${ac.utilization}%</td>
+                    <td>${ac.first_flight} → ${ac.last_flight}</td>
+                    <td class="${statusClass}">${statusIcon} ${ac.status}</td>
+                </tr>
+            `;
+        });
+
+        tbody.innerHTML = html || '<tr><td colspan="7" style="text-align: center;">No matching aircraft</td></tr>';
+        totalSpan.textContent = `Showing: ${filteredAircraft.length} / ${data.total} aircraft`;
+
+    } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; color: #ff6b6b;">Failed to load data</td></tr>';
+    }
+}
+
+// Setup Aircraft Modal Event Listeners
+document.addEventListener('DOMContentLoaded', () => {
+    // Click on Aircraft Operation card
+    const acCard = document.getElementById('aircraft-operation-card');
+    if (acCard) {
+        acCard.addEventListener('click', openAircraftModal);
+    }
+
+    // Close button
+    const closeBtn = document.getElementById('close-aircraft-modal');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', closeAircraftModal);
+    }
+
+    // Click outside to close
+    const modal = document.getElementById('aircraft-modal');
+    if (modal) {
+        modal.addEventListener('click', (e) => {
+            if (e.target === modal) {
+                closeAircraftModal();
+            }
+        });
+    }
+
+    // Type filter change
+    const typeFilter = document.getElementById('ac-type-filter');
+    if (typeFilter) {
+        typeFilter.addEventListener('change', loadAircraftData);
+    }
+});

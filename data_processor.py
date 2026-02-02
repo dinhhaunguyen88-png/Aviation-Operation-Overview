@@ -334,40 +334,35 @@ def calculate_dashboard_summary(
     target_date = target_date or date.today()
     
     # Define Operations Window: 04:00 today to 03:59 tomorrow
-    start_dt = datetime.combine(target_date, datetime.min.time()).replace(hour=4, minute=0, second=0)
-    end_dt = start_dt + timedelta(hours=24) - timedelta(seconds=1)
+    # flight_data now contains both target_date and next_date early morning flights
+    next_date = target_date + timedelta(days=1)
+    target_date_str = target_date.isoformat()
+    next_date_str = next_date.isoformat()
 
     # Filter flights within the Operations Window
     ops_flights = []
     for flight in flight_data:
         std_str = flight.get("std", "")
+        flight_date_str = flight.get("flight_date", target_date_str)
+        
+        # Normalize flight_date
+        if hasattr(flight_date_str, 'isoformat'):
+            flight_date_str = flight_date_str.isoformat()
+        
         if std_str and ":" in std_str:
             try:
                 parts = std_str.split(":")
                 f_hour = int(parts[0])
                 
-                # Simplified check for just "HH:MM" assuming it belongs to target_date:
-                # In a real scenario with cross-day data, we'd check timestamps.
-                # Here we assume data is for target_date. 
-                # Flights 00:00-03:59 belong to PREVIOUS Ops Day.
-                # Flights 04:00-23:59 belong to CURRENT Ops Day.
-                # Wait, if we are loading data for Feb 1st, and we see 02:00, it is Feb 1st 02:00.
-                # Does Feb 1st 02:00 belong to Feb 1st Ops Day (Starts Feb 1st 04:00)? NO.
-                # It belongs to Jan 31st Ops Day.
+                # Include flight if:
+                # 1. flight_date == target_date AND STD >= 04:00
+                # 2. flight_date == next_date AND STD < 04:00 (early morning)
                 
-                # So for target_date Feb 1st, we want:
-                # - Feb 1st 04:00 -> 23:59
-                # - Feb 2nd 00:00 -> 03:59
-                
-                # If flight_data ONLY contains Feb 1st flights:
-                # We Keep 04:00 -> 23:59.
-                # We exclude 00:00 -> 03:59.
-                
-                if 4 <= f_hour <= 23:
-                     ops_flights.append(flight)
-                     
-                # Note: We are missing T+1 00:00-03:59 data if not provided in flight_data.
-                
+                if flight_date_str == target_date_str and 4 <= f_hour <= 23:
+                    ops_flights.append(flight)
+                elif flight_date_str == next_date_str and f_hour < 4:
+                    ops_flights.append(flight)
+                    
             except (ValueError, IndexError):
                 pass
     
@@ -453,6 +448,13 @@ def calculate_dashboard_summary(
     # Calculate flights per hour (Operational Pulse) & AC Usage
     flights_per_hour = [0] * 24
     
+    # Slots by base per hour (SGN, HAN, DAD)
+    slots_by_base = {
+        "SGN": [0] * 24,
+        "HAN": [0] * 24,
+        "DAD": [0] * 24
+    }
+    
     total_pax = 0
     
     # OTP Vars
@@ -480,7 +482,10 @@ def calculate_dashboard_summary(
     for flight in ops_flights:
         # Pulse Chart
         std = flight.get("std", "")
-        # Format usually HH:MM:SS or HH:MM
+        sta = flight.get("sta", "")  # Also extract STA for completed logic
+        etd = flight.get("etd", "")  # Estimated Time Departure
+        dep_airport = flight.get("departure", "").upper().strip()  # Field name is 'departure' not 'dep_airport'
+        
         if std:
             try:
                 parts = std.split(":")
@@ -488,6 +493,18 @@ def calculate_dashboard_summary(
                     h = int(parts[0])
                     if 0 <= h < 24:
                         flights_per_hour[h] += 1
+            except ValueError:
+                pass
+        
+        # Slots by Base (use ETD if available, else STD)
+        departure_time = etd if etd else std
+        if departure_time and dep_airport in slots_by_base:
+            try:
+                parts = departure_time.split(":")
+                if len(parts) >= 2:
+                    h = int(parts[0])
+                    if 0 <= h < 24:
+                        slots_by_base[dep_airport][h] += 1
             except ValueError:
                 pass
         
@@ -536,19 +553,57 @@ def calculate_dashboard_summary(
         # Completed & OTP
         ata_str = flight.get("ata")
         on_blk_str = flight.get("on_block")
+        atd_str = flight.get("atd")
+        flight_status = flight.get("status", "").upper().strip()
         
         is_completed = False
         completion_source = None
         
-        if ata_str:
+        # Calculate scheduled block time in minutes (from STD/STA)
+        scheduled_block_mins = 0
+        if std and sta:
+            std_mins = parse_hm(std)
+            sta_mins = parse_hm(sta)
+            if std_mins is not None and sta_mins is not None:
+                scheduled_block_mins = sta_mins - std_mins
+                if scheduled_block_mins < 0:
+                    scheduled_block_mins += 1440  # Overnight
+        
+        # Completed Logic (Option B - Multiple conditions):
+        # 1. STATUS = ARRIVED or LANDED → Completed (most reliable from AIMS)
+        # 2. ATA exists (actual landing time populated) → Completed
+        # 3. ATD exists but no ATA → Check if current_time > ATD + scheduled_block + 1h buffer
+        
+        if flight_status in ["ARRIVED", "LANDED"]:
+            is_completed = True
+            completion_source = "STATUS"
+        elif ata_str:
             is_completed = True
             completion_source = "ATA"
-        elif on_blk_str:
-            # Fallback completion (Gate Arrival)
-            is_completed = True
-            completion_source = "ONBLOCK"
-            
-        atd_str = flight.get("atd") 
+        elif atd_str and not ata_str:
+            # Missing ATA case - check if should be completed by now
+            atd_mins = parse_hm(atd_str)
+            if atd_mins is not None and scheduled_block_mins > 0:
+                # Expected arrival = ATD + scheduled_block + 1h buffer
+                expected_arrival_mins = atd_mins + scheduled_block_mins + 60
+                if expected_arrival_mins >= 1440:
+                    expected_arrival_mins -= 1440  # Wrap around
+                
+                from datetime import datetime
+                now = datetime.now()
+                now_mins = now.hour * 60 + now.minute
+                
+                # If current time > expected arrival, consider completed (missing ATA)
+                # Handle overnight: if expected is early morning, and now is late night
+                time_diff = now_mins - expected_arrival_mins
+                if time_diff < -720:
+                    time_diff += 1440
+                elif time_diff > 720:
+                    time_diff -= 1440
+                
+                if time_diff >= 0:  # Current time is past expected arrival
+                    is_completed = True
+                    completion_source = "ATD+Buffer"
         
         if is_completed:
             completed_flights += 1
@@ -600,7 +655,7 @@ def calculate_dashboard_summary(
             })
 
     return {
-        "total_crew": len(crew_data),
+        "total_crew": crew_by_status["FLY"],  # Only count crew currently flying
         "standby_available": crew_by_status["SBY"], # Legacy
         "total_aircraft_operation": total_aircraft_operation, 
         "sick_leave": crew_by_status["SL"] + crew_by_status["CSL"],
@@ -611,8 +666,7 @@ def calculate_dashboard_summary(
         "aircraft_utilization": aircraft_utilization,
         "crew_by_status": crew_by_status,
         "flights_per_hour": flights_per_hour,
-        "alerts": alerts,
-        "alerts_count": len(alerts),
+        "slots_by_base": slots_by_base,  # For departure slots chart
         "total_pax": total_pax,
         "otp_percentage": otp_percentage
     }
@@ -868,27 +922,49 @@ class DataProcessor:
     
     def get_flights(self, target_date: date = None) -> List[Dict[str, Any]]:
         """
-        Get flights for a date.
+        Get flights for Operational Day (04:00 target_date to 03:59 next_date).
         
         Args:
             target_date: Date to filter by
             
         Returns:
-            List of flight records
+            List of flight records for the ops day window
         """
         target_date = target_date or date.today()
+        next_date = target_date + timedelta(days=1)
+        
+        all_flights = []
         
         if self.supabase:
             try:
-                result = self.supabase.table("flights") \
+                # Fetch target_date flights (will filter for >= 04:00 in calculate_dashboard_summary)
+                result_today = self.supabase.table("flights") \
                     .select("*") \
                     .eq("flight_date", target_date.isoformat()) \
                     .execute()
-                return result.data or []
+                all_flights.extend(result_today.data or [])
+                
+                # Fetch next_date early morning flights (00:00-03:59)
+                result_tomorrow = self.supabase.table("flights") \
+                    .select("*") \
+                    .eq("flight_date", next_date.isoformat()) \
+                    .execute()
+                
+                # Filter only 00:00-03:59 flights from tomorrow
+                for flt in (result_tomorrow.data or []):
+                    std = flt.get("std", "")
+                    if std and ":" in std:
+                        try:
+                            hour = int(std.split(":")[0])
+                            if hour < 4:  # 00:00 to 03:59
+                                all_flights.append(flt)
+                        except:
+                            pass
+                            
             except Exception as e:
                 logger.error(f"Failed to fetch flights: {e}")
         
-        return []
+        return all_flights
     
     def get_dashboard_summary(self, target_date: date = None) -> Dict[str, Any]:
         """
@@ -913,17 +989,259 @@ class DataProcessor:
             target_date=target_date
         )
         
-        # Override total_crew with actual count from crew_members table
-        if self.supabase:
-            try:
-                result = self.supabase.table("crew_members").select("crew_id", count="exact").execute()
-                summary["total_crew"] = result.count if result.count else len(result.data or [])
-            except Exception as e:
-                logger.warning(f"Failed to fetch crew count: {e}")
+        # Get operating crew count from leg_members
+        # Only count unique crew assigned to operational flights
+        operating_crew_count = self._get_operating_crew_count(flights, target_date)
+        if operating_crew_count > 0:
+            summary["total_crew"] = operating_crew_count
         
         summary["data_source"] = self.data_source
         
         return summary
+    
+    def get_aircraft_summary(self, target_date: date = None) -> Dict[str, Any]:
+        """
+        Get summary of all aircraft operating on target date.
+        Returns list with flight count, block hours, utilization, etc.
+        """
+        target_date = target_date or date.today()
+        flights = self.get_flights(target_date)
+        
+        # Group flights by aircraft reg
+        aircraft_data = {}
+        
+        # Invalid regs to filter out (type codes used as reg in test data)
+        INVALID_REGS = {'VN-A320', 'VN-A321', 'VN-A322'}
+        
+        for flt in flights:
+            reg = flt.get("aircraft_reg", "")
+            if not reg:
+                continue
+            
+            # Skip invalid/test aircraft regs
+            if reg in INVALID_REGS:
+                continue
+                
+            if reg not in aircraft_data:
+                aircraft_data[reg] = {
+                    "reg": reg,
+                    "type": flt.get("aircraft_type", "Unknown"),
+                    "flights": [],
+                    "block_minutes": 0,
+                    "first_std": None,
+                    "last_sta": None
+                }
+            
+            ac = aircraft_data[reg]
+            ac["flights"].append(flt.get("flight_number", ""))
+            
+            # Parse times
+            std = flt.get("std", "")
+            sta = flt.get("sta", "")
+            off_block = flt.get("off_block", "")
+            on_block = flt.get("on_block", "")
+            
+            # Track first/last times
+            if std:
+                if ac["first_std"] is None or std < ac["first_std"]:
+                    ac["first_std"] = std
+            if sta:
+                if ac["last_sta"] is None or sta > ac["last_sta"]:
+                    ac["last_sta"] = sta
+            
+            # Calculate block time - Priority: Actual > Scheduled
+            block_mins = 0
+            
+            if off_block and on_block:
+                # Use actual times
+                try:
+                    off_parts = off_block.split(":")
+                    on_parts = on_block.split(":")
+                    off_mins = int(off_parts[0]) * 60 + int(off_parts[1])
+                    on_mins = int(on_parts[0]) * 60 + int(on_parts[1])
+                    if on_mins < off_mins:
+                        on_mins += 24 * 60  # Overnight
+                    block_mins = on_mins - off_mins
+                except:
+                    pass
+            elif std and sta:
+                # Fallback to scheduled times (STD/STA)
+                try:
+                    std_parts = std.split(":")
+                    sta_parts = sta.split(":")
+                    std_mins = int(std_parts[0]) * 60 + int(std_parts[1])
+                    sta_mins = int(sta_parts[0]) * 60 + int(sta_parts[1])
+                    if sta_mins < std_mins:
+                        sta_mins += 24 * 60  # Overnight
+                    block_mins = sta_mins - std_mins
+                except:
+                    pass
+            
+            ac["block_minutes"] += block_mins
+        
+        # Build result list
+        now = datetime.now()
+        now_mins = now.hour * 60 + now.minute
+        total_aircraft = len(aircraft_data)
+        
+        # Calculate fleet-wide average: Total scheduled hours / Number of aircraft
+        total_scheduled_mins = sum(ac["block_minutes"] for ac in aircraft_data.values())
+        fleet_avg_mins = total_scheduled_mins / total_aircraft if total_aircraft > 0 else 1
+        
+        result = []
+        
+        for reg, ac in aircraft_data.items():
+            block_hours = round(ac["block_minutes"] / 60, 1)
+            
+            # Utilization = This aircraft's block hours / Fleet average * 100
+            # Shows how this aircraft compares to fleet average
+            utilization = round((ac["block_minutes"] / fleet_avg_mins) * 100, 1) if fleet_avg_mins > 0 else 0
+            
+            # Determine status - GROUND only if ALL flights are completed
+            # A flight is completed if: has ATA, or ETA+60min passed, or ATD+block+60min passed
+            all_flights_completed = True
+            has_any_flight = False
+            
+            for flt in flights:
+                if flt.get("aircraft_reg") != reg:
+                    continue
+                    
+                has_any_flight = True
+                ata = flt.get("ata", "")
+                eta = flt.get("eta", "")
+                atd = flt.get("atd", "")
+                sta = flt.get("sta", "")
+                std = flt.get("std", "")
+                
+                flight_completed = False
+                
+                # Check 1: Has ATA → Completed
+                if ata:
+                    flight_completed = True
+                else:
+                    # Check 2: Has ETA and now > ETA + 60min
+                    if eta:
+                        try:
+                            eta_parts = eta.split(":")
+                            eta_mins = int(eta_parts[0]) * 60 + int(eta_parts[1])
+                            if now_mins > eta_mins + 60:
+                                flight_completed = True
+                            elif now_mins < eta_mins - 720:  # Handle overnight
+                                flight_completed = True
+                        except:
+                            pass
+                    
+                    # Check 3: Has ATD and now > ATD + scheduled_block + 60min
+                    if not flight_completed and atd and std and sta:
+                        try:
+                            atd_parts = atd.split(":")
+                            atd_mins = int(atd_parts[0]) * 60 + int(atd_parts[1])
+                            std_parts = std.split(":")
+                            sta_parts = sta.split(":")
+                            std_mins = int(std_parts[0]) * 60 + int(std_parts[1])
+                            sta_mins = int(sta_parts[0]) * 60 + int(sta_parts[1])
+                            if sta_mins < std_mins:
+                                sta_mins += 1440
+                            scheduled_block = sta_mins - std_mins
+                            expected_arrival = atd_mins + scheduled_block + 60
+                            if expected_arrival >= 1440:
+                                expected_arrival -= 1440
+                            if now_mins > expected_arrival or (now_mins < expected_arrival - 720):
+                                flight_completed = True
+                        except:
+                            pass
+                
+                if not flight_completed:
+                    all_flights_completed = False
+                    break
+            
+            # Status: GROUND only if all flights completed
+            status = "GROUND" if (has_any_flight and all_flights_completed) else "FLYING"
+            
+            result.append({
+                "reg": reg,
+                "type": ac["type"],
+                "flight_count": len(ac["flights"]),
+                "flight_list": ac["flights"],
+                "block_hours": block_hours,
+                "utilization": utilization,
+                "first_flight": ac["first_std"][:5] if ac["first_std"] else "-",
+                "last_flight": ac["last_sta"][:5] if ac["last_sta"] else "-",
+                "status": status
+            })
+        
+        # Sort by flight count descending
+        result.sort(key=lambda x: x["flight_count"], reverse=True)
+        
+        return {
+            "aircraft": result,
+            "total": len(result),
+            "date": target_date.isoformat()
+        }
+    
+    def _get_operating_crew_count(self, flights: List[Dict[str, Any]], target_date: date) -> int:
+        """
+        Count unique crew members assigned to flights in Operational Day.
+        Reads from flight_crew table (synced by scheduler from leg_members API).
+        
+        Ops Day = 04:00 target_date to 03:59 next_date
+        
+        Args:
+            flights: List of flight records for the day
+            target_date: Date to count crew for
+            
+        Returns:
+            Count of unique crew members operating
+        """
+        if not flights:
+            return 0
+        
+        next_date = target_date + timedelta(days=1)
+        unique_crew = set()
+        
+        # Try to get from flight_crew table (cached from leg_members API)
+        if self.supabase:
+            try:
+                # Fetch target_date crew
+                result_today = self.supabase.table("flight_crew") \
+                    .select("crew_id, flight_date") \
+                    .eq("flight_date", target_date.isoformat()) \
+                    .execute()
+                    
+                for r in (result_today.data or []):
+                    if r.get("crew_id"):
+                        unique_crew.add(r.get("crew_id"))
+                
+                # Fetch next_date early morning crew (00:00-03:59)
+                result_tomorrow = self.supabase.table("flight_crew") \
+                    .select("crew_id, flight_date") \
+                    .eq("flight_date", next_date.isoformat()) \
+                    .execute()
+                
+                # Note: We add all because scheduler already filters for early flights
+                for r in (result_tomorrow.data or []):
+                    if r.get("crew_id"):
+                        unique_crew.add(r.get("crew_id"))
+                
+                if unique_crew:
+                    logger.info(f"Operating crew count from flight_crew: {len(unique_crew)}")
+                    return len(unique_crew)
+                    
+            except Exception as e:
+                logger.debug(f"flight_crew table not available: {e}")
+        
+        # Fallback: Estimate based on flight count
+        # Average crew per flight: 4 (2 pilots + 2 cabin crew for narrow-body)
+        # But crew can fly multiple legs, so estimate unique crew = flights * 0.8
+        estimated = int(len(flights) * 0.8)
+        
+        # Cap at reasonable maximum (assume crew fly avg 2 legs/day)
+        max_crew = int(len(flights) * 4 / 2)  # 4 crew per flight, 2 legs each
+        
+        operating_count = min(estimated, max_crew)
+        logger.info(f"Operating crew estimated: {operating_count} (from {len(flights)} flights)")
+        
+        return operating_count
 
     # =========================================================
     # AIMS Integration Business Logic

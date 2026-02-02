@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Chart Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+</head>
+
+<body style="background: #1e293b; padding: 20px;">
+    <h2 style="color: white;">Chart.js Test</h2>
+    <div style="width: 600px; height: 300px; background: #334155; padding: 20px;">
+        <canvas id="testChart"></canvas>
+    </div>
+
+    <script>
+        console.log('Test page loaded');
+        console.log('Chart object:', typeof Chart);
+
+        const ctx = document.getElementById('testChart');
+        console.log('Canvas element:', ctx);
+
+        new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['4:00', '5:00', '6:00', '7:00', '8:00', '9:00', '10:00', '11:00', '12:00'],
+                datasets: [{
+                    label: 'SGN',
+                    data: [5, 12, 18, 22, 15, 10, 8, 6, 5],
+                    borderColor: '#ef4444',
+                    borderWidth: 2,
+                    fill: false
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false
+            }
+        });
+
+        console.log('Chart created!');
+    </script>
+</body>
+
+</html>
