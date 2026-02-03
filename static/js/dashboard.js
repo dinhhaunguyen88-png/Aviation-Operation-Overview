@@ -277,8 +277,8 @@ async function loadFlights() {
         const tbody = document.getElementById('flights-tbody');
         let flights = data.flights || [];
 
-        // Filter to only show flights matching the selected date
-        flights = flights.filter(f => f.flight_date === state.selectedDate);
+        // Note: API returns ops day flights (prev + today + next day)
+        // No additional frontend filtering needed - API handles date filtering
 
         // Current time for proximity calculations
         const now = new Date();
