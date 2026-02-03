@@ -139,19 +139,7 @@
 
 
 
-                <!-- Charts Section: Departure Slots by Base -->
-                <section class="charts-section" id="charts-section">
-                    <div class="panel chart-panel full-width" style="padding: 1rem;">
-                        <h3 style="margin: 0 0 0.5rem 0; font-size: 0.95rem; font-weight: 600;">
-                            Departure Slots by Base - Time of Day
-                        </h3>
 
-                        <!-- Chart.js Canvas -->
-                        <div style="height: 220px; position: relative;">
-                            <canvas id="slots-chart-canvas"></canvas>
-                        </div>
-                    </div>
-                </section>
 
 
 
@@ -162,6 +150,13 @@
                         <div class="panel-header">
                             <h2>Operational Focus (Live Flights)</h2>
                             <div class="panel-actions">
+                                <select id="flight-limit" class="select-input">
+                                    <option value="20">20 Closest</option>
+                                    <option value="50">Show 50</option>
+                                    <option value="100">Show 100</option>
+                                    <option value="200">Show 200</option>
+                                    <option value="all">Show All</option>
+                                </select>
                                 <select id="aircraft-filter" class="select-input">
                                     <option value="">All Aircraft</option>
                                     <option value="A320">A320</option>
@@ -172,21 +167,28 @@
                             </div>
                         </div>
                         <div class="table-container">
-                            <table class="data-table" id="flights-table">
+                            <table class="data-table compact-table" id="flights-table">
                                 <thead>
                                     <tr>
-                                        <th>Flight</th>
-                                        <th>Route</th>
+                                        <th>DATE</th>
+                                        <th>FLT</th>
+                                        <th>REG</th>
+                                        <th>AC</th>
+                                        <th>DEP</th>
+                                        <th>ARR</th>
                                         <th>STD</th>
                                         <th>STA</th>
-                                        <th>A/C Type</th>
-                                        <th>A/C Reg</th>
-                                        <th>Status</th>
+                                        <th>ETD</th>
+                                        <th>ETA</th>
+                                        <th>TKof</th>
+                                        <th>TDwn</th>
+                                        <th>ATD</th>
+                                        <th>ATA</th>
                                     </tr>
                                 </thead>
                                 <tbody id="flights-tbody">
                                     <tr class="empty-row">
-                                        <td colspan="7">Loading flight data...</td>
+                                        <td colspan="14">Loading flight data...</td>
                                     </tr>
                                 </tbody>
                             </table>

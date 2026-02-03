@@ -447,8 +447,11 @@ class AIMSSoapClient:
                         "etd": etd if etd else None,
                         "eta": eta if eta else None,
                         "atd": atd if atd else None,
-                        "off_block": tkoff if tkoff else None,  # Takeoff time = off block
-                        "on_block": tdown if tdown else None,   # Touchdown = on block
+                        "ata": ata if ata else None,
+                        "tkof": tkoff if tkoff else None,
+                        "tdwn": tdown if tdown else None,
+                        "off_block": atd if atd else None, # Legacy compatibility
+                        "on_block": ata if ata else None,  # Legacy compatibility
                         # Additional fields
                         "delay_code_1": '', 
                         "delay_time_1": 0,

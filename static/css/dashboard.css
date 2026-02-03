@@ -480,6 +480,12 @@ body {
     font-weight: 600;
 }
 
+.panel-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+}
+
 /* Status Grid */
 .status-grid {
     display: grid;
@@ -721,23 +727,82 @@ body {
 /* FTL Tables */
 .ftl-tables-panel {
     margin-bottom: var(--space-xl);
+    max-height: 300px;
+    /* Collapsible / scrollable */
+    overflow-y: auto;
 }
 
 .ftl-tables-grid {
     display: grid;
     grid-template-columns: repeat(2, 1fr);
-    gap: var(--space-lg);
+    gap: var(--space-sm);
 }
 
 .ftl-table-container h3 {
-    font-size: 0.875rem;
+    font-size: 0.8rem;
     font-weight: 600;
-    margin-bottom: var(--space-md);
+    margin-bottom: var(--space-sm);
     color: var(--text-secondary);
 }
 
 .ftl-table {
-    font-size: 0.8rem;
+    font-size: 0.75rem;
+}
+
+/* Compact Table Styles */
+.compact-table {
+    font-size: 0.78rem;
+}
+
+.compact-table th,
+.compact-table td {
+    padding: var(--space-xs) var(--space-sm);
+    white-space: nowrap;
+    text-align: center;
+}
+
+.compact-table th {
+    font-size: 0.65rem;
+    letter-spacing: 0.02em;
+    padding: var(--space-sm);
+}
+
+/* Cell-specific styles */
+.cell-date {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+}
+
+.cell-flt {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cell-reg {
+    color: var(--primary-light);
+    font-weight: 500;
+}
+
+.cell-ac {
+    color: var(--text-muted);
+    font-size: 0.7rem;
+}
+
+.cell-dep,
+.cell-arr {
+    font-weight: 500;
+}
+
+.cell-time {
+    font-family: 'Roboto Mono', 'Consolas', monospace;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+}
+
+.cell-tz {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    font-weight: 500;
 }
 
 /* Input Styles */

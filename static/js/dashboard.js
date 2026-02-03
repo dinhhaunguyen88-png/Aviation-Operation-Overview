@@ -14,8 +14,8 @@ const REFRESH_INTERVAL = 60000;  // 1 minute
 let state = {
     selectedDate: new Date().toISOString().split('T')[0],
     dataSource: 'AIMS',
-    baseFilter: '',
     aircraftFilter: '',
+    flightLimit: '20',
     isLoading: false
 };
 
@@ -32,9 +32,74 @@ function formatDate(dateStr) {
     });
 }
 
+function formatShortDate(dateStr) {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    return `${date.getDate()}/${date.getMonth() + 1}/${date.getFullYear()}`;
+}
+
+// Airport timezone offsets (UTC offset in hours)
+// Times in AIMS are stored in LOCAL STATION TIME already
+// This map is for reference/future use if we need to convert
+const AIRPORT_TIMEZONES = {
+    // Vietnam (UTC+7)
+    'SGN': 7, 'HAN': 7, 'DAD': 7, 'CXR': 7, 'PQC': 7, 'VCA': 7,
+    'HPH': 7, 'HUI': 7, 'VCL': 7, 'UIH': 7, 'TBB': 7, 'PXU': 7,
+    'VDO': 7, 'VII': 7, 'VKG': 7, 'BMV': 7, 'DLI': 7, 'VCS': 7,
+    // Asia
+    'BKK': 7, 'DMK': 7,  // Thailand
+    'SIN': 8,             // Singapore
+    'KUL': 8, 'PEN': 8,   // Malaysia
+    'HKG': 8,             // Hong Kong
+    'ICN': 9, 'GMP': 9,   // Korea
+    'NRT': 9, 'HND': 9, 'KIX': 9, 'NGO': 9, 'FUK': 9, // Japan
+    'TPE': 8, 'KHH': 8,   // Taiwan
+    'PEK': 8, 'PVG': 8, 'CAN': 8, 'CTU': 8, 'XIY': 8, 'SZX': 8, // China
+    'DEL': 5.5, 'BOM': 5.5, 'MAA': 5.5, // India
+    'MNL': 8,             // Philippines
+    'CGK': 7, 'DPS': 8,   // Indonesia
+    'REP': 7, 'PNH': 7,   // Cambodia
+    'RGN': 6.5,           // Myanmar
+    'VTE': 7,             // Laos
+    // Middle East
+    'DXB': 4, 'DOH': 3, 'AUH': 4,
+    // Europe
+    'LHR': 0, 'CDG': 1, 'FRA': 1, 'AMS': 1,
+    // Australia
+    'SYD': 11, 'MEL': 11, 'BNE': 10
+};
+
 function formatTime(timeStr) {
     if (!timeStr) return '--:--';
     return timeStr.substring(0, 5);
+}
+
+// Convert UTC time to local station time
+// timeStr: HH:MM:SS or HH:MM format (UTC)
+// airportCode: 3-letter IATA code to determine timezone
+function convertToLocalTime(timeStr, airportCode) {
+    if (!timeStr) return '--:--';
+
+    // Parse time string
+    const parts = timeStr.split(':');
+    let hours = parseInt(parts[0], 10);
+    const minutes = parseInt(parts[1], 10);
+
+    // Get timezone offset for airport (default to UTC+7 for Vietnam)
+    const tzOffset = AIRPORT_TIMEZONES[airportCode] || 7;
+
+    // Add timezone offset
+    hours = hours + tzOffset;
+
+    // Handle day overflow
+    if (hours >= 24) hours -= 24;
+    if (hours < 0) hours += 24;
+
+    // Format with leading zeros
+    const hh = hours.toString().padStart(2, '0');
+    const mm = minutes.toString().padStart(2, '0');
+
+    return `${hh}:${mm}`;
 }
 
 function showToast(message, type = 'info') {
@@ -103,17 +168,11 @@ async function loadDashboardSummary() {
         updateKPI('pax-load', data.total_pax ? data.total_pax.toLocaleString() : '0');
         updateKPI('otp-percent', (data.otp_percentage || 0).toFixed(1) + '%');
 
-
-
         // Update last sync time
         const syncEl = document.getElementById('last-sync');
         if (syncEl) {
             syncEl.textContent = `Last sync: ${new Date().toLocaleTimeString('vi-VN')}`;
         }
-
-        // Update Charts
-        console.log('[DEBUG] loadDashboardSummary - slots_by_base:', JSON.stringify(data.slots_by_base));
-        updateCharts(data);
 
     } catch (error) {
         console.error('Failed to load dashboard summary:', error);
@@ -197,9 +256,15 @@ async function loadFTLSummary() {
     }
 }
 
-// Roster Heatmap removed per business requirements
-
-// Crew list logic removed to prioritize operational focus.
+function getFlightStatusClass(status) {
+    switch (status?.toLowerCase()) {
+        case 'departed': return 'info';
+        case 'arrived': return 'success';
+        case 'delayed': return 'warning';
+        case 'cancelled': return 'danger';
+        default: return 'secondary';
+    }
+}
 
 async function loadFlights() {
     try {
@@ -212,56 +277,105 @@ async function loadFlights() {
         const tbody = document.getElementById('flights-tbody');
         let flights = data.flights || [];
 
-        // Apply +/- 1 hour filter
+        // Filter to only show flights matching the selected date
+        flights = flights.filter(f => f.flight_date === state.selectedDate);
+
+        // Current time for proximity calculations
         const now = new Date();
-        const oneHourMs = 60 * 60 * 1000;
+        const limit = state.flightLimit || '20';
 
-        const filteredFlights = flights.filter(f => {
-            if (!f.std) return false;
-
-            // Handle ISO string or HH:mm
-            let flightTime;
-            if (f.std.includes('T')) {
-                flightTime = new Date(f.std);
+        // Helper: Parse flight time to Date object
+        const parseFlightTime = (flight) => {
+            if (!flight.std) return null;
+            if (flight.std.includes('T')) {
+                return new Date(flight.std);
             } else {
-                // If only HH:mm, assume today's date
-                const [h, m] = f.std.split(':');
-                flightTime = new Date();
-                flightTime.setHours(h, m, 0, 0);
+                // Use flight_date + std (HH:mm:ss or HH:mm)
+                const timeParts = flight.std.split(':');
+                const flightDate = new Date(flight.flight_date);
+                flightDate.setHours(parseInt(timeParts[0]), parseInt(timeParts[1]), 0, 0);
+                return flightDate;
             }
+        };
 
-            const diff = now - flightTime;
-            // Include: Future flights within 1 hour AND Completed flights within 1 hour
-            // Future: diff is negative (e.g., -30min)
-            // Past: diff is positive (e.g., +30min)
-            return diff >= -oneHourMs && diff <= oneHourMs;
-        });
+        // Add parsed time to each flight
+        flights = flights.map(f => ({
+            ...f,
+            _flightTime: parseFlightTime(f),
+            _timeDiff: parseFlightTime(f) ? parseFlightTime(f) - now : Infinity
+        }));
 
-        // Enforce 20-flight limit and sort by STD
-        const displayFlights = filteredFlights
-            .sort((a, b) => new Date(a.std) - new Date(b.std))
-            .slice(0, 20);
+        // Filter out flights without valid time
+        const validFlights = flights.filter(f => f._flightTime !== null);
+
+        let displayFlights = [];
+
+        if (limit === '20') {
+            // "20 Closest" logic: Sort by absolute time difference from now
+            displayFlights = validFlights
+                .sort((a, b) => Math.abs(a._timeDiff) - Math.abs(b._timeDiff))
+                .slice(0, 20)
+                .sort((a, b) => a._flightTime - b._flightTime); // Re-sort by STD for display
+        } else if (limit === 'all') {
+            // Show all, sorted by STD
+            displayFlights = validFlights.sort((a, b) => a._flightTime - b._flightTime);
+        } else {
+            // 50, 100, 200 logic:
+            // Priority 1: Flights departing in the next 1 hour (upcoming)
+            // Priority 2: Flights already departed (completed/in-progress)
+            // Priority 3: Future flights beyond 1 hour
+            const numLimit = parseInt(limit);
+            const oneHourFromNow = now.getTime() + (60 * 60 * 1000);
+
+            const upcoming = validFlights.filter(f =>
+                f._flightTime >= now && f._flightTime <= oneHourFromNow
+            ).sort((a, b) => a._flightTime - b._flightTime);
+
+            const completed = validFlights.filter(f =>
+                f._flightTime < now
+            ).sort((a, b) => b._flightTime - a._flightTime); // Most recent first
+
+            const future = validFlights.filter(f =>
+                f._flightTime > oneHourFromNow
+            ).sort((a, b) => a._flightTime - b._flightTime);
+
+            // Combine: upcoming first, then completed (reversed to show recent), then future
+            displayFlights = [...upcoming, ...completed.reverse(), ...future].slice(0, numLimit);
+
+            // Final sort by STD for consistent display
+            displayFlights = displayFlights.sort((a, b) => a._flightTime - b._flightTime);
+        }
 
         if (displayFlights.length > 0) {
-            tbody.innerHTML = displayFlights.map(flight => `
+            tbody.innerHTML = displayFlights.map(flight => {
+                const dep = flight.departure || '';
+                const arr = flight.arrival || '';
+                return `
                 <tr>
-                    <td>${flight.carrier_code || ''}${flight.flight_number || ''}</td>
-                    <td>${flight.departure || ''} → ${flight.arrival || ''}</td>
-                    <td>${formatTime(flight.std)}</td>
-                    <td>${formatTime(flight.sta)}</td>
-                    <td>${flight.aircraft_type || '-'}</td>
-                    <td>${flight.aircraft_reg || '-'}</td>
-                    <td><span class="badge badge-${getFlightStatusClass(flight.status)}">${flight.status || 'Scheduled'}</span></td>
+                    <td class="cell-date">${formatShortDate(flight.flight_date)}</td>
+                    <td class="cell-flt">${flight.flight_number || ''}</td>
+                    <td class="cell-reg">${flight.aircraft_reg || '-'}</td>
+                    <td class="cell-ac">${flight.aircraft_type || '-'}</td>
+                    <td class="cell-dep">${dep}</td>
+                    <td class="cell-arr">${arr}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.std, dep)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.sta, arr)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.etd, dep)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.eta, arr)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.tkof, dep)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.tdwn, arr)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.atd, dep)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.ata, arr)}</td>
                 </tr>
-            `).join('');
+            `}).join('');
         } else {
-            tbody.innerHTML = '<tr class="empty-row"><td colspan="7">No flights within the current 2-hour window (+/- 1h)</td></tr>';
+            tbody.innerHTML = '<tr class="empty-row"><td colspan="14">No flight data found for this selection</td></tr>';
         }
 
     } catch (error) {
         console.error('Failed to load flights:', error);
         document.getElementById('flights-tbody').innerHTML =
-            '<tr class="empty-row"><td colspan="7">Failed to load flight data</td></tr>';
+            '<tr class="empty-row"><td colspan="14">Failed to load flight data</td></tr>';
     }
 }
 
@@ -454,6 +568,13 @@ function initializeDashboard() {
         loadFlights();
     });
 
+    // Flight limit filter listener
+    document.getElementById('flight-limit').addEventListener('change', (e) => {
+        state.flightLimit = e.target.value;
+        console.log('Flight limit changed to:', state.flightLimit);
+        loadFlights();
+    });
+
     // Focus Mode listener
     document.getElementById('focus-mode-btn').addEventListener('click', (e) => {
         const btn = e.currentTarget;
@@ -500,128 +621,13 @@ function initializeDashboard() {
     console.log('Dashboard initialized');
 }
 
-// =====================================================
-// Departure Slots Bar Chart (Chart.js)
-// =====================================================
-
-let slotsChart = null;
-
-function renderSlotsBarChart(slotsData) {
-    const canvas = document.getElementById('slots-chart-canvas');
-    if (!canvas || !slotsData) {
-        console.log('[DEBUG] renderSlotsBarChart: canvas or data missing');
-        return;
-    }
-
-    const sgn = slotsData.SGN || Array(24).fill(0);
-    const han = slotsData.HAN || Array(24).fill(0);
-    const dad = slotsData.DAD || Array(24).fill(0);
-
-    // Generate labels for all 24 hours
-    const labels = [];
-    for (let h = 0; h < 24; h++) {
-        labels.push(`${h.toString().padStart(2, '0')}:00`);
-    }
-
-    // Destroy existing chart if any
-    if (slotsChart) {
-        slotsChart.destroy();
-    }
-
-    const ctx = canvas.getContext('2d');
-    slotsChart = new Chart(ctx, {
-        type: 'bar',
-        data: {
-            labels: labels,
-            datasets: [
-                {
-                    label: 'SGN',
-                    data: sgn,
-                    backgroundColor: 'rgba(239, 68, 68, 0.85)',
-                    borderColor: 'rgba(239, 68, 68, 1)',
-                    borderWidth: 1,
-                    borderRadius: 3
-                },
-                {
-                    label: 'HAN',
-                    data: han,
-                    backgroundColor: 'rgba(234, 179, 8, 0.85)',
-                    borderColor: 'rgba(234, 179, 8, 1)',
-                    borderWidth: 1,
-                    borderRadius: 3
-                },
-                {
-                    label: 'DAD',
-                    data: dad,
-                    backgroundColor: 'rgba(59, 130, 246, 0.85)',
-                    borderColor: 'rgba(59, 130, 246, 1)',
-                    borderWidth: 1,
-                    borderRadius: 3
-                }
-            ]
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            plugins: {
-                legend: {
-                    display: true,
-                    position: 'top',
-                    labels: {
-                        color: 'rgba(255,255,255,0.8)',
-                        padding: 15,
-                        font: { size: 11 }
-                    }
-                },
-                tooltip: {
-                    mode: 'index',
-                    intersect: false,
-                    backgroundColor: 'rgba(0,0,0,0.8)',
-                    titleFont: { size: 12 },
-                    bodyFont: { size: 11 }
-                }
-            },
-            scales: {
-                x: {
-                    grid: {
-                        color: 'rgba(255,255,255,0.05)'
-                    },
-                    ticks: {
-                        color: 'rgba(255,255,255,0.6)',
-                        font: { size: 10 },
-                        maxRotation: 45,
-                        minRotation: 0
-                    }
-                },
-                y: {
-                    beginAtZero: true,
-                    grid: {
-                        color: 'rgba(255,255,255,0.08)'
-                    },
-                    ticks: {
-                        color: 'rgba(255,255,255,0.6)',
-                        font: { size: 10 },
-                        stepSize: 5
-                    }
-                }
-            }
-        }
-    });
-}
-
+// Chart logic removed as requested (Departure Slots Chart)
 function updateCharts(data) {
-    if (!data) return;
-
-    if (data.slots_by_base) {
-        console.log('[DEBUG] updateCharts - Rendering Chart.js bar chart');
-        renderSlotsBarChart(data.slots_by_base);
-    } else {
-        console.log('[DEBUG] updateCharts - slots_by_base is NULL or UNDEFINED');
-    }
+    // No charts to update currently
 }
 
 function initCharts() {
-    console.log('[DEBUG] initCharts - Chart.js ready');
+    console.log('[DEBUG] initCharts - No charts to initialize');
 }
 
 // Initialize when DOM is ready

@@ -74,13 +74,15 @@ try:
     from flask_limiter import Limiter
     from flask_limiter.util import get_remote_address
     
-    limiter = Limiter(
-        app=app,
-        key_func=get_remote_address,
-        default_limits=["200 per day", "50 per hour"],
-        storage_uri=os.getenv("REDIS_URL", "memory://"),
-        strategy="fixed-window"
-    )
+    # limiter = Limiter(
+    #     app=app,
+    #     key_func=get_remote_address,
+    #     default_limits=["10000 per day", "10000 per hour"], # Effectively disabled
+    #     storage_uri="memory://",
+    #     strategy="fixed-window"
+    # )
+    limiter = None # Disable completely
+    logger.info(">>> RATE LIMIT DISABLED (LIMITER=NONE) <<<")
     logger.info("Rate limiting enabled")
 except ImportError:
     limiter = None
@@ -286,6 +288,10 @@ def _sync_today_flights(target_date):
                         "sta": flt.get("sta"),
                         "etd": flt.get("etd"),
                         "eta": flt.get("eta"),
+                        "atd": flt.get("atd"),
+                        "ata": flt.get("ata"),
+                        "tkof": flt.get("tkof"),
+                        "tdwn": flt.get("tdwn"),
                         "off_block": flt.get("off_block"),
                         "on_block": flt.get("on_block"),
                         "status": _calculate_flight_status(flt),
