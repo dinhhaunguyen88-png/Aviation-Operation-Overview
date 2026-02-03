@@ -501,15 +501,15 @@ function initializeDashboard() {
 }
 
 // =====================================================
-// Departure Slots Bar Chart (Pure CSS)
+// Departure Slots Bar Chart (Chart.js)
 // =====================================================
 
-function renderSlotsBarChart(slotsData) {
-    const container = document.getElementById('slots-bar-chart');
-    const xAxisContainer = document.getElementById('slots-x-axis');
+let slotsChart = null;
 
-    if (!container || !slotsData) {
-        console.log('[DEBUG] renderSlotsBarChart: container or data missing');
+function renderSlotsBarChart(slotsData) {
+    const canvas = document.getElementById('slots-chart-canvas');
+    if (!canvas || !slotsData) {
+        console.log('[DEBUG] renderSlotsBarChart: canvas or data missing');
         return;
     }
 
@@ -517,80 +517,103 @@ function renderSlotsBarChart(slotsData) {
     const han = slotsData.HAN || Array(24).fill(0);
     const dad = slotsData.DAD || Array(24).fill(0);
 
-    // Find max value for scaling
-    const allValues = [...sgn, ...han, ...dad];
-    const maxVal = Math.max(...allValues, 1); // At least 1 to avoid division by zero
-
-    console.log('[DEBUG] renderSlotsBarChart - max:', maxVal, 'SGN total:', sgn.reduce((a, b) => a + b, 0));
-
-    // Clear container
-    container.innerHTML = '';
-    xAxisContainer.innerHTML = '';
-
-    // Only show hours 4-23 (operational hours)
-    const startHour = 4;
-    const endHour = 23;
-    const containerHeight = 130; // pixels
-
-    for (let hour = startHour; hour <= endHour; hour++) {
-        // Create wrapper with label + bars
-        const wrapper = document.createElement('div');
-        wrapper.style.cssText = 'display: flex; flex-direction: column; align-items: center; flex: 1; min-width: 0; height: 100%;';
-
-        // Total count label on top
-        const sgnVal = sgn[hour] || 0;
-        const hanVal = han[hour] || 0;
-        const dadVal = dad[hour] || 0;
-        const totalVal = sgnVal + hanVal + dadVal;
-
-        const countLabel = document.createElement('div');
-        countLabel.style.cssText = 'font-size: 0.6rem; color: rgba(255,255,255,0.7); margin-bottom: 2px; height: 14px;';
-        countLabel.textContent = totalVal > 0 ? totalVal : '';
-
-        // Bar group
-        const group = document.createElement('div');
-        group.style.cssText = 'display: flex; gap: 1px; align-items: flex-end; flex: 1; width: 100%;';
-
-        // SGN bar (red) - use PIXEL heights
-        const sgnHeightPx = Math.max((sgnVal / maxVal) * containerHeight, sgnVal > 0 ? 5 : 0);
-        const sgnBar = document.createElement('div');
-        sgnBar.style.cssText = `flex: 1; background: #ef4444; height: ${sgnHeightPx}px; border-radius: 2px 2px 0 0; transition: height 0.3s ease; cursor: pointer;`;
-        sgnBar.title = `SGN ${hour}:00 - ${sgnVal} flights`;
-
-        // HAN bar (yellow)
-        const hanHeightPx = Math.max((hanVal / maxVal) * containerHeight, hanVal > 0 ? 5 : 0);
-        const hanBar = document.createElement('div');
-        hanBar.style.cssText = `flex: 1; background: #eab308; height: ${hanHeightPx}px; border-radius: 2px 2px 0 0; transition: height 0.3s ease; cursor: pointer;`;
-        hanBar.title = `HAN ${hour}:00 - ${hanVal} flights`;
-
-        // DAD bar (blue)
-        const dadHeightPx = Math.max((dadVal / maxVal) * containerHeight, dadVal > 0 ? 5 : 0);
-        const dadBar = document.createElement('div');
-        dadBar.style.cssText = `flex: 1; background: #3b82f6; height: ${dadHeightPx}px; border-radius: 2px 2px 0 0; transition: height 0.3s ease; cursor: pointer;`;
-        dadBar.title = `DAD ${hour}:00 - ${dadVal} flights`;
-
-        group.appendChild(sgnBar);
-        group.appendChild(hanBar);
-        group.appendChild(dadBar);
-
-        wrapper.appendChild(countLabel);
-        wrapper.appendChild(group);
-        container.appendChild(wrapper);
-
-        // X-axis label (show every 2 hours)
-        const label = document.createElement('div');
-        label.style.cssText = 'flex: 1; text-align: center; min-width: 0;';
-        label.textContent = hour % 2 === 0 ? `${hour}:00` : '';
-        xAxisContainer.appendChild(label);
+    // Generate labels for all 24 hours
+    const labels = [];
+    for (let h = 0; h < 24; h++) {
+        labels.push(`${h.toString().padStart(2, '0')}:00`);
     }
+
+    // Destroy existing chart if any
+    if (slotsChart) {
+        slotsChart.destroy();
+    }
+
+    const ctx = canvas.getContext('2d');
+    slotsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: labels,
+            datasets: [
+                {
+                    label: 'SGN',
+                    data: sgn,
+                    backgroundColor: 'rgba(239, 68, 68, 0.85)',
+                    borderColor: 'rgba(239, 68, 68, 1)',
+                    borderWidth: 1,
+                    borderRadius: 3
+                },
+                {
+                    label: 'HAN',
+                    data: han,
+                    backgroundColor: 'rgba(234, 179, 8, 0.85)',
+                    borderColor: 'rgba(234, 179, 8, 1)',
+                    borderWidth: 1,
+                    borderRadius: 3
+                },
+                {
+                    label: 'DAD',
+                    data: dad,
+                    backgroundColor: 'rgba(59, 130, 246, 0.85)',
+                    borderColor: 'rgba(59, 130, 246, 1)',
+                    borderWidth: 1,
+                    borderRadius: 3
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    display: true,
+                    position: 'top',
+                    labels: {
+                        color: 'rgba(255,255,255,0.8)',
+                        padding: 15,
+                        font: { size: 11 }
+                    }
+                },
+                tooltip: {
+                    mode: 'index',
+                    intersect: false,
+                    backgroundColor: 'rgba(0,0,0,0.8)',
+                    titleFont: { size: 12 },
+                    bodyFont: { size: 11 }
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        color: 'rgba(255,255,255,0.05)'
+                    },
+                    ticks: {
+                        color: 'rgba(255,255,255,0.6)',
+                        font: { size: 10 },
+                        maxRotation: 45,
+                        minRotation: 0
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: {
+                        color: 'rgba(255,255,255,0.08)'
+                    },
+                    ticks: {
+                        color: 'rgba(255,255,255,0.6)',
+                        font: { size: 10 },
+                        stepSize: 5
+                    }
+                }
+            }
+        }
+    });
 }
 
 function updateCharts(data) {
     if (!data) return;
 
-    // Render CSS-based bar chart
     if (data.slots_by_base) {
-        console.log('[DEBUG] updateCharts - SGN[0]:', data.slots_by_base.SGN?.[0], 'max SGN:', Math.max(...(data.slots_by_base.SGN || [])));
+        console.log('[DEBUG] updateCharts - Rendering Chart.js bar chart');
         renderSlotsBarChart(data.slots_by_base);
     } else {
         console.log('[DEBUG] updateCharts - slots_by_base is NULL or UNDEFINED');
@@ -598,8 +621,7 @@ function updateCharts(data) {
 }
 
 function initCharts() {
-    // No longer using Chart.js - using pure CSS bars
-    console.log('[DEBUG] initCharts - using CSS bar chart (no Chart.js needed)');
+    console.log('[DEBUG] initCharts - Chart.js ready');
 }
 
 // Initialize when DOM is ready

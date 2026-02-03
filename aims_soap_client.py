@@ -434,7 +434,9 @@ class AIMSSoapClient:
                     flights.append({
                         "flight_date": flight_date.isoformat(),
                         "carrier_code": getattr(flight, 'FlightCarrier', '') or '',
-                        "flight_number": str(getattr(flight, 'FlightNo', '') or ''),
+                        # Include FlightLegCD as suffix (e.g., 212 + A = 212A)
+                        "flight_number": str(getattr(flight, 'FlightNo', '') or '') + 
+                                        (str(getattr(flight, 'FlightLegCD', '') or '').strip()),
                         "departure": getattr(flight, 'FlightDep', '') or '',
                         "arrival": getattr(flight, 'FlightArr', '') or '',
                         "aircraft_type": getattr(flight, 'FlightAcType', '') or '',
@@ -569,7 +571,9 @@ class AIMSSoapClient:
                         # In get_day_flights we used header date. Here we have multiple dates.
                         # Need to parse 'FlightDate' or 'FlightDD'/'FlightMM' etc.
                         # Let's trust 'FlightDate' field or construct it.
-                        "flight_number": str(getattr(flight, 'FlightNo', '') or ''),
+                        # Include FlightLegCD as suffix (e.g., 212 + A = 212A)
+                        "flight_number": str(getattr(flight, 'FlightNo', '') or '') + 
+                                        (str(getattr(flight, 'FlightLegCD', '') or '').strip()),
                         "departure": getattr(flight, 'FlightDep', '') or '',
                         "arrival": getattr(flight, 'FlightArr', '') or '',
                         "aircraft_type": getattr(flight, 'FlightAcType', '') or '',
