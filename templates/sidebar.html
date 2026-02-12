@@ -4,6 +4,7 @@
         <span class="logo-text" style="font-weight: 800; letter-spacing: -0.5px; font-size: 1.1rem;">VJ
             OPERATIONS</span>
     </div>
+    <script>window.API_KEY = "{{ api_key or '' }}";</script>
 
     <nav class="sidebar-nav" style="padding: 12px; display: flex; flex-direction: column; gap: 4px;">
         <a href="/" class="nav-item {{ 'active' if active_page == 'dashboard' }}"
@@ -28,6 +29,11 @@
             <span class="icon">🔄</span>
             <span>A/C Swap</span>
         </a>
+        <a href="/ftl-list" class="nav-item {{ 'active' if active_page == 'ftl' }}"
+            style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-size: 14px; font-weight: 500;">
+            <span class="icon">📑</span>
+            <span>FTL List</span>
+        </a>
         <a href="/data-etl" class="nav-item {{ 'active' if active_page == 'etl' }}"
             style="display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 8px; color: var(--text-muted); text-decoration: none; transition: 0.2s; font-size: 14px; font-weight: 500;">
             <span class="icon">💾</span>
@@ -45,7 +51,7 @@
 
     <div class="sidebar-footer"
         style="padding: 20px; border-top: 1px solid var(--border-color); font-size: 11px; color: var(--text-muted);">
-        <p>AIMS Ops Platform v1.2</p>
+        <p>AIMS Ops Platform v1.3</p>
     </div>
 </aside>
 

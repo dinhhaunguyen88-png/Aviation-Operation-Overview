@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FTL List | Aviation Operations Dashboard</title>
+    <meta name="description" content="Flight Time Limitations tracking for all crew members">
+    <link rel="stylesheet" href="/static/css/dashboard.css">
+    <link rel="stylesheet" href="/static/css/shared.css">
+    <link rel="stylesheet" href="/static/css/ftl_list.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap"
+        rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        {% include 'sidebar.html' %}
+        <div class="main-wrapper">
+            <!-- Header -->
+            <header class="header">
+                <div class="header-left">
+                    <div class="logo">
+                        <span class="logo-icon">✈️</span>
+                        <h1>FTL Management</h1>
+                    </div>
+                </div>
+                <div class="header-center">
+                    <div class="search-box">
+                        <span class="search-icon">🔍</span>
+                        <input type="text" id="crew-search" placeholder="Search Crew ID or Name..."
+                            class="search-input">
+                    </div>
+                </div>
+                <div class="header-right">
+                    <div class="sync-status" id="sync-status">
+                        <span class="status-dot online"></span>
+                        <span class="status-text">Connected</span>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Main Content -->
+            <main class="main-content">
+                <!-- KPI Summary Cards -->
+                <section class="ftl-kpi-cards">
+                    <div class="kpi-card" id="kpi-total">
+                        <div class="kpi-icon">👥</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-total-value">--</span>
+                            <span class="kpi-label">Total Crew</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card kpi-normal" id="kpi-normal">
+                        <div class="kpi-icon">✅</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-normal-value">--</span>
+                            <span class="kpi-label">Normal</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card kpi-warning" id="kpi-warning">
+                        <div class="kpi-icon">⚠️</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-warning-value">--</span>
+                            <span class="kpi-label">Warning</span>
+                        </div>
+                    </div>
+                    <div class="kpi-card kpi-critical" id="kpi-critical">
+                        <div class="kpi-icon">🚨</div>
+                        <div class="kpi-body">
+                            <span class="kpi-value" id="kpi-critical-value">--</span>
+                            <span class="kpi-label">Critical</span>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Filters Bar -->
+                <section class="filters-panel">
+                    <div class="filter-group">
+                        <label>Warning Level:</label>
+                        <div class="toggle-group" id="filter-level">
+                            <button class="toggle-btn active" data-level="all">All</button>
+                            <button class="toggle-btn toggle-critical" data-level="CRITICAL">Critical</button>
+                            <button class="toggle-btn toggle-warning" data-level="WARNING">Warning</button>
+                            <button class="toggle-btn toggle-normal" data-level="NORMAL">Normal</button>
+                        </div>
+                    </div>
+
+                    <div class="filter-group">
+                        <label>Base:</label>
+                        <select id="filter-base" class="select-input">
+                            <option value="">All Bases</option>
+                            <option value="SGN">SGN</option>
+                            <option value="HAN">HAN</option>
+                            <option value="DAD">DAD</option>
+                            <option value="CXR">CXR</option>
+                        </select>
+                    </div>
+
+                    <button id="reset-filters" class="btn btn-secondary">Reset</button>
+                </section>
+
+                <!-- FTL List Table -->
+                <section class="panel table-panel full-width">
+                    <div class="panel-header">
+                        <h2>Crew Flight Time Limitations (28D & 12M)</h2>
+                        <div class="panel-actions">
+                            <span class="total-count" id="total-crew-count">Total: -- crew</span>
+                            <button id="export-ftl-btn" class="btn btn-primary btn-sm">
+                                <span class="icon">📥</span> Export CSV
+                            </button>
+                        </div>
+                    </div>
+                    <!-- Loading Overlay -->
+                    <div class="table-loading-overlay" id="table-loading" style="display: none;">
+                        <div class="loading-spinner"></div>
+                        <span>Loading FTL data...</span>
+                    </div>
+                    <div class="table-container">
+                        <table class="data-table" id="ftl-list-table">
+                            <thead>
+                                <tr>
+                                    <th class="sortable" data-sort="crew_id">CREW ID ↕</th>
+                                    <th class="sortable" data-sort="crew_name">NAME ↕</th>
+                                    <th>BASE</th>
+                                    <th class="sortable" data-sort="hours_28_day">28D HOURS ↕</th>
+                                    <th class="sortable" data-sort="hours_12_month">12M HOURS ↕</th>
+                                    <th>STATUS</th>
+                                    <th class="actions-cell">ACTION</th>
+                                </tr>
+                            </thead>
+                            <tbody id="ftl-list-tbody">
+                                <tr class="empty-row">
+                                    <td colspan="8">Loading crew FTL data...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <!-- Pagination -->
+                    <div class="pagination-container">
+                        <button id="prev-page" class="btn btn-icon" disabled>&lt;</button>
+                        <span id="page-info">Page 1 of --</span>
+                        <button id="next-page" class="btn btn-icon" disabled>&gt;</button>
+                    </div>
+                </section>
+            </main>
+
+            <!-- Footer -->
+            <footer class="footer">
+                <div class="footer-left">
+                    <span>Aviation Operations Dashboard v1.0</span>
+                </div>
+                <div class="footer-center">
+                    <span id="last-update">Last update: --</span>
+                </div>
+                <div class="footer-right">
+                    <span class="safety-indicator">Safety Compliance: <span id="compliance-status">--%</span></span>
+                </div>
+            </footer>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/static/js/ftl_list.js"></script>
+</body>
+
+</html>

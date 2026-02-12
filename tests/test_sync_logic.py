@@ -42,37 +42,41 @@ def test_sync_flight_history(mock_aims_client):
         {"flight_date": "2026-01-11", "flight_number": "VJ101", "block_time": "01:30"}
     ]
     
-    # Execute
-    result = api_server._sync_flight_history(target_date)
+    # Execute - now returns a tuple (map_28d, map_12m)
+    result_28d, result_12m = api_server._sync_flight_history(target_date)
     
-    # Verify
-    assert len(result) == 2
-    assert result[("2026-01-10", "VJ100")] == 120 # 2 hours * 60
-    assert result[("2026-01-11", "VJ101")] == 90 # 1.5 hours * 60
+    # Verify - both maps should contain the flights (within 28d window)
+    assert len(result_12m) == 2
+    # Verify normalized keys (numeric part only)
+    assert result_12m[("2026-01-10", "100")] == 120  # VJ100 -> 100
+    assert result_12m[("2026-01-11", "101")] == 90   # VJ101 -> 101
     
     # Verify calls (simplistic check that it was called at least once)
     assert mock_aims_client.get_flights_range.called
 
 # ============================================================================
-# Test: _sync_today_flights
+# Test: _sync_daily_flights (7-day window)
 # ============================================================================
-def test_sync_today_flights(mock_aims_client, mock_supabase):
-    """Test fetching and upserting today's flights."""
+def test_sync_daily_flights(mock_aims_client, mock_supabase):
+    """Test fetching and upserting flights for 7-day window."""
+    from datetime import timedelta
     target_date = date(2026, 2, 1)
+    sync_dates = [target_date + timedelta(days=d) for d in range(-2, 5)]  # 7 days
     
     mock_aims_client.get_day_flights.return_value = [
         {"flight_number": "VJ200", "departure": "SGN", "arrival": "HAN", "flight_status": "SCH"}
     ]
     
-    api_server._sync_today_flights(target_date)
+    # Mock the mod log query (cancellations)
+    mock_supabase.table.return_value.select.return_value.eq.return_value.execute.return_value.data = []
     
-    # Verify upsert called
-    mock_supabase.table.return_value.upsert.return_value.execute.assert_called()
+    api_server._sync_daily_flights(sync_dates)
     
-    # Check args
-    call_args = mock_supabase.table.return_value.upsert.call_args[0][0]
-    assert len(call_args) == 1
-    assert call_args[0]["flight_number"] == "VJ200"
+    # Verify get_day_flights called 7 times (once per date)
+    assert mock_aims_client.get_day_flights.call_count == 7
+    
+    # Verify upsert was called (at least once for the flights)
+    assert mock_supabase.table.return_value.upsert.return_value.execute.called
 
 # ============================================================================
 # Test: _fetch_candidate_crew
@@ -105,8 +109,12 @@ def test_process_crew_duties(mock_aims_client):
         {"crew_id": "1002", "crew_name": "FO B", "position": "FO", "base": "SGN"} # Will have no duty
     ]
     
-    flight_block_map = {
-        ("2026-02-01", "VJ300"): 120
+    flight_block_map_28d = {
+        ("2026-02-01", "300"): 120
+    }
+    
+    flight_block_map_12m = {
+        ("2026-02-01", "300"): 120
     }
     
     # Mock schedules
@@ -120,19 +128,15 @@ def test_process_crew_duties(mock_aims_client):
 
     mock_aims_client.get_crew_schedule.side_effect = side_effect_schedule
     
-    # Execute
-    # We mock ThreadPool to run synchronously for ease or trust it handles the mock objects
-    # With patching properly key components, it should work even threaded.
-    
-    # Note: Using patched time.sleep to speed up test
+    # Execute with 4 args (28d map, 12m map, target_date)
     with patch('time.sleep'):
-        results = api_server._process_crew_duties(candidate_crew, flight_block_map, target_date)
+        results = api_server._process_crew_duties(candidate_crew, flight_block_map_28d, flight_block_map_12m, target_date)
     
     # Verify
     assert len(results) == 1
     res = results[0]
     assert res["meta"]["crew_id"] == "1001"
-    assert res["ftl_mins"] == 120
+    assert res["ftl_28d_mins"] == 120
     assert len(res["roster"]) == 1
 
 # ============================================================================
@@ -170,15 +174,38 @@ def test_upsert_sync_results(mock_supabase):
 # Test: API Join Logic
 # ============================================================================
 def test_api_crew_join(mock_supabase):
-    """Test that /api/crew uses the correct join syntax."""
-    # We mock the flask request context if needed, but here we can just test the query builder
-    # Since /api/crew is a route, we use app.test_client()
+    """Test that /api/crew correctly queries crew_members table."""
+    import os
     with api_server.app.test_client() as client:
-        # Mock supabase query chain
-        mock_supabase.table.return_value.select.return_value.range.return_value.execute.return_value.data = []
+        api_key = os.getenv("X_API_KEY") or os.getenv("SUPABASE_KEY") or "test-key"
         
-        client.get('/api/crew')
+        # Mock the count query chain
+        mock_count = MagicMock()
+        mock_count.count = 0
+        mock_supabase.table.return_value.select.return_value.neq.return_value.range.return_value.execute.return_value = mock_count
         
-        # Verify select was called with the join string
-        mock_supabase.table.return_value.select.assert_called_with("*, crew_flight_hours(hours_28_day, warning_level)")
+        # Mock the data query chain  
+        mock_data = MagicMock()
+        mock_data.data = []
+        mock_supabase.table.return_value.select.return_value.neq.return_value.execute.return_value = mock_data
+        
+        response = client.get('/api/crew', headers={'X-API-Key': api_key})
+        
+        # Verify that the crew_members table was queried
+        mock_supabase.table.assert_any_call("crew_members")
 
+# ============================================================================
+# Test: normalize_flight_id
+# ============================================================================
+def test_normalize_flight_id():
+    """Test various flight number formats for normalization."""
+    from api_server import normalize_flight_id
+    
+    assert normalize_flight_id("VJ1250") == "1250"
+    assert normalize_flight_id("VJ1250A") == "1250"
+    assert normalize_flight_id("1250/SGN") == "1250"
+    assert normalize_flight_id("1250") == "1250"
+    assert normalize_flight_id("VN123") == "123"
+    assert normalize_flight_id(None) == ""
+    assert normalize_flight_id("") == ""
+    assert normalize_flight_id("ABC") == "ABC" # Fallback if no digits

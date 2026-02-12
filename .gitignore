@@ -45,3 +45,20 @@ htmlcov/
 
 # Skills repo (if cloned locally)
 antigravity-awesome-skills/
+
+# Cloudflare Tunnel binary
+cloudflared.exe
+
+# Temporary data exports
+*.json
+!package.json
+!package-lock.json
+!.brain/brain.json
+etl_jobs_check*.json
+ftl_summary_test.json
+flights_export_*.csv
+schema_aims_full.sql
+
+# Brain session (local state)
+.brain/session.json
+.brain/handover.md

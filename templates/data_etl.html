@@ -248,7 +248,9 @@
 
                             async function fetchSystemHealth() {
                                 try {
-                                    const response = await fetch('/api/system/health');
+                                    const response = await fetch('/api/system/health', {
+                                        headers: { 'X-API-Key': window.API_KEY || '' }
+                                    });
                                     const data = await response.json();
                                     if (data.success) {
                                         const health = data.data;
@@ -272,7 +274,9 @@
 
                             async function fetchETLHistory() {
                                 try {
-                                    const response = await fetch('/api/etl/history');
+                                    const response = await fetch('/api/etl/history', {
+                                        headers: { 'X-API-Key': window.API_KEY || '' }
+                                    });
                                     const data = await response.json();
                                     if (data.success) {
                                         renderETLHistory(data.data);
@@ -407,6 +411,7 @@
                                 });
 
                                 xhr.open('POST', '/api/upload/csv');
+                                xhr.setRequestHeader('X-API-Key', window.API_KEY || '');
                                 xhr.send(formData);
                             }
 

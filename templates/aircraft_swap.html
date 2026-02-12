@@ -57,13 +57,17 @@
                             recovery.</p>
                     </div>
                     <div class="flex gap-3">
+                        <!-- Period Selector -->
                         <div class="flex bg-[#1e293b] p-1 rounded-lg">
-                            <button class="px-4 py-1.5 rounded-md text-xs font-bold text-[#8aa3a6]">24h</button>
-                            <button
+                            <button data-period="24h" onclick="setPeriod('24h')"
+                                class="px-4 py-1.5 rounded-md text-xs font-bold text-[#8aa3a6] hover:text-white transition-colors">24h</button>
+                            <button data-period="7d" onclick="setPeriod('7d')"
                                 class="px-4 py-1.5 rounded-md text-xs font-bold bg-primary text-[#111f22]">7d</button>
-                            <button class="px-4 py-1.5 rounded-md text-xs font-bold text-[#8aa3a6]">30d</button>
+                            <button data-period="30d" onclick="setPeriod('30d')"
+                                class="px-4 py-1.5 rounded-md text-xs font-bold text-[#8aa3a6] hover:text-white transition-colors">30d</button>
                         </div>
-                        <button
+                        <!-- Export Button -->
+                        <button onclick="exportSwapCSV()"
                             class="flex items-center gap-2 px-4 h-9 bg-[#1e293b] hover:bg-white/5 rounded-lg text-sm transition-colors">
                             <span class="material-symbols-outlined text-lg">download</span>
                             Export
@@ -73,43 +77,47 @@
             </header>
 
             <div class="flex-1 px-10 py-8 max-w-7xl mx-auto w-full">
-                <!-- Summary Bar -->
+                <!-- Summary Bar (KPI Cards) -->
                 <section class="mb-8">
                     <div class="grid grid-cols-4 gap-4">
+                        <!-- Total Swaps -->
                         <div
                             class="bg-surface-dark border border-[#1e293b] rounded-xl p-6 hover:border-secondary/40 transition-colors">
                             <div class="flex justify-between items-start mb-3">
                                 <p class="text-[#8aa3a6] text-sm font-semibold">Total Swaps</p>
                                 <span class="material-symbols-outlined text-secondary text-xl">swap_horiz</span>
                             </div>
-                            <h3 class="text-3xl font-bold text-white">42</h3>
-                            <p class="text-xs text-secondary mt-1">↑ 8.2% from last period</p>
+                            <h3 id="kpi-total-swaps" class="text-3xl font-bold text-white">--</h3>
+                            <p id="kpi-trend" class="text-xs text-[#8aa3a6] mt-1">Loading...</p>
                         </div>
+                        <!-- Impacted Flights -->
                         <div
                             class="bg-surface-dark border border-[#263537] rounded-xl p-6 hover:border-primary/40 transition-colors">
                             <div class="flex justify-between items-start mb-3">
                                 <p class="text-[#8aa3a6] text-sm font-semibold">Impacted Flights</p>
                                 <span class="material-symbols-outlined text-primary text-xl">flight</span>
                             </div>
-                            <h3 class="text-3xl font-bold text-white">117</h3>
-                            <p class="text-xs text-primary mt-1">↓ 3.1% from last period</p>
+                            <h3 id="kpi-impacted-flights" class="text-3xl font-bold text-white">--</h3>
+                            <p class="text-xs text-[#8aa3a6] mt-1">Flights affected by swaps</p>
                         </div>
+                        <!-- Avg Swap Time -->
                         <div
                             class="bg-surface-dark border border-[#1e293b] rounded-xl p-6 hover:border-secondary/40 transition-colors">
                             <div class="flex justify-between items-start mb-3">
                                 <p class="text-[#8aa3a6] text-sm font-semibold">Avg Swap Time</p>
                                 <span class="material-symbols-outlined text-secondary text-xl">schedule</span>
                             </div>
-                            <h3 class="text-3xl font-bold text-white">3.2h</h3>
-                            <p class="text-xs text-secondary mt-1">Before scheduled departure</p>
+                            <h3 id="kpi-avg-time" class="text-3xl font-bold text-white">--</h3>
+                            <p class="text-xs text-[#8aa3a6] mt-1">Before scheduled departure</p>
                         </div>
+                        <!-- Recovery Rate -->
                         <div
                             class="bg-surface-dark border border-[#263537] rounded-xl p-6 hover:border-primary/40 transition-colors">
                             <div class="flex justify-between items-start mb-3">
                                 <p class="text-[#8aa3a6] text-sm font-semibold">Recovery Rate</p>
                                 <span class="material-symbols-outlined text-primary text-xl">check_circle</span>
                             </div>
-                            <h3 class="text-3xl font-bold text-primary">94.2%</h3>
+                            <h3 id="kpi-recovery-rate" class="text-3xl font-bold text-primary">--</h3>
                             <p class="text-xs text-primary mt-1">On-time recovery after swap</p>
                         </div>
                     </div>
@@ -117,41 +125,14 @@
 
                 <!-- Analytics Grid -->
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                    <!-- Swap Reasons -->
+                    <!-- Swap Reasons Breakdown -->
                     <div class="bg-surface-dark border border-[#263537] rounded-xl p-6">
                         <div class="flex items-center justify-between mb-6">
                             <h3 class="text-lg font-bold">Swap Reasons Breakdown</h3>
                             <span class="text-xs text-[#8aa3a6]">By category</span>
                         </div>
-                        <div class="space-y-4">
-                            <div class="flex items-center gap-4">
-                                <span class="w-24 text-sm text-[#8aa3a6]">Maintenance</span>
-                                <div class="flex-1 h-6 bg-[#1e293b] rounded-full relative overflow-hidden">
-                                    <div class="absolute inset-y-0 left-0 w-[45%] bg-secondary rounded-full"></div>
-                                </div>
-                                <span class="w-12 text-sm font-bold text-right">45%</span>
-                            </div>
-                            <div class="flex items-center gap-4">
-                                <span class="w-24 text-sm text-[#8aa3a6]">Weather</span>
-                                <div class="flex-1 h-6 bg-[#1e293b] rounded-full relative overflow-hidden">
-                                    <div class="absolute inset-y-0 left-0 w-[25%] bg-primary rounded-full"></div>
-                                </div>
-                                <span class="w-12 text-sm font-bold text-right">25%</span>
-                            </div>
-                            <div class="flex items-center gap-4">
-                                <span class="w-24 text-sm text-[#8aa3a6]">Crew</span>
-                                <div class="flex-1 h-6 bg-[#1e293b] rounded-full relative overflow-hidden">
-                                    <div class="absolute inset-y-0 left-0 w-[18%] bg-secondary rounded-full"></div>
-                                </div>
-                                <span class="w-12 text-sm font-bold text-right">18%</span>
-                            </div>
-                            <div class="flex items-center gap-4">
-                                <span class="w-24 text-sm text-[#8aa3a6]">Operational</span>
-                                <div class="flex-1 h-6 bg-[#1e293b] rounded-full relative overflow-hidden">
-                                    <div class="absolute inset-y-0 left-0 w-[12%] bg-[#8aa3a6] rounded-full"></div>
-                                </div>
-                                <span class="w-12 text-sm font-bold text-right">12%</span>
-                            </div>
+                        <div id="reasons-container" class="space-y-4">
+                            <p class="text-sm text-[#8aa3a6] text-center py-4 animate-pulse">Loading...</p>
                         </div>
                     </div>
 
@@ -161,43 +142,8 @@
                             <h3 class="text-lg font-bold">Top Impacted Tail Numbers</h3>
                             <span class="text-xs text-[#8aa3a6]">Most frequent swaps</span>
                         </div>
-                        <div class="space-y-3">
-                            <div
-                                class="flex items-center justify-between p-3 bg-[#263537]/50 rounded-lg hover:bg-[#263537] transition-colors">
-                                <div class="flex items-center gap-4">
-                                    <span class="text-2xl font-bold text-secondary">1</span>
-                                    <div>
-                                        <span class="text-sm font-bold text-white">VN-A888</span>
-                                        <span class="text-xs text-[#8aa3a6] ml-2">A350-900</span>
-                                    </div>
-                                </div>
-                                <span class="bg-secondary/20 text-secondary px-3 py-1 rounded text-xs font-bold">12
-                                    swaps</span>
-                            </div>
-                            <div
-                                class="flex items-center justify-between p-3 bg-[#263537]/50 rounded-lg hover:bg-[#263537] transition-colors">
-                                <div class="flex items-center gap-4">
-                                    <span class="text-2xl font-bold text-[#f59e0b]">2</span>
-                                    <div>
-                                        <span class="text-sm font-bold text-white">VN-A391</span>
-                                        <span class="text-xs text-[#8aa3a6] ml-2">B787-10</span>
-                                    </div>
-                                </div>
-                                <span class="bg-[#f59e0b]/20 text-[#f59e0b] px-3 py-1 rounded text-xs font-bold">8
-                                    swaps</span>
-                            </div>
-                            <div
-                                class="flex items-center justify-between p-3 bg-[#263537]/50 rounded-lg hover:bg-[#263537] transition-colors">
-                                <div class="flex items-center gap-4">
-                                    <span class="text-2xl font-bold text-primary">3</span>
-                                    <div>
-                                        <span class="text-sm font-bold text-white">VN-A672</span>
-                                        <span class="text-xs text-[#8aa3a6] ml-2">A321neo</span>
-                                    </div>
-                                </div>
-                                <span class="bg-primary/20 text-primary px-3 py-1 rounded text-xs font-bold">6
-                                    swaps</span>
-                            </div>
+                        <div id="top-tails-container" class="space-y-3">
+                            <p class="text-sm text-[#8aa3a6] text-center py-4 animate-pulse">Loading...</p>
                         </div>
                     </div>
                 </div>
@@ -206,12 +152,31 @@
                 <section class="bg-surface-dark border border-[#263537] rounded-xl overflow-hidden">
                     <div class="p-6 border-b border-[#263537] flex justify-between items-center">
                         <h3 class="text-lg font-bold">Swap Event Log</h3>
-                        <div class="flex gap-2">
-                            <button
+                        <div class="flex gap-2 relative">
+                            <button id="filter-btn" onclick="toggleCategoryFilter()"
                                 class="flex items-center gap-2 px-3 py-1.5 bg-[#263537] hover:bg-[#35494c] rounded-lg text-sm">
                                 <span class="material-symbols-outlined text-sm">filter_list</span>
-                                Filter
+                                <span id="filter-label">Filter</span>
                             </button>
+                            <!-- Category Dropdown -->
+                            <div id="category-dropdown"
+                                class="hidden absolute right-0 top-10 bg-[#1e293b] border border-[#263537] rounded-lg shadow-xl z-10 min-w-[160px]">
+                                <button onclick="setCategory('')"
+                                    class="block w-full text-left px-4 py-2 text-sm hover:bg-[#263537] rounded-t-lg">All
+                                    Categories</button>
+                                <button onclick="setCategory('MAINTENANCE')"
+                                    class="block w-full text-left px-4 py-2 text-sm hover:bg-[#263537]">🔧
+                                    Maintenance</button>
+                                <button onclick="setCategory('WEATHER')"
+                                    class="block w-full text-left px-4 py-2 text-sm hover:bg-[#263537]">🌧️
+                                    Weather</button>
+                                <button onclick="setCategory('CREW')"
+                                    class="block w-full text-left px-4 py-2 text-sm hover:bg-[#263537]">👥
+                                    Crew</button>
+                                <button onclick="setCategory('OPERATIONAL')"
+                                    class="block w-full text-left px-4 py-2 text-sm hover:bg-[#263537] rounded-b-lg">⚙️
+                                    Operational</button>
+                            </div>
                         </div>
                     </div>
                     <div class="overflow-x-auto">
@@ -229,68 +194,27 @@
                                     <th class="px-6 py-4 text-xs font-semibold text-[#8aa3a6] uppercase">Status</th>
                                 </tr>
                             </thead>
-                            <tbody class="divide-y divide-[#263537]">
-                                <tr class="hover:bg-primary/5 transition-colors">
-                                    <td class="px-6 py-4 font-mono text-sm text-primary">#SW-0024</td>
-                                    <td class="px-6 py-4 font-mono text-sm">VN102</td>
-                                    <td class="px-6 py-4 text-sm">VN-A888</td>
-                                    <td class="px-6 py-4 text-sm">VN-A899</td>
-                                    <td class="px-6 py-4">
-                                        <span
-                                            class="bg-secondary/20 text-secondary text-xs px-2 py-1 rounded">Maintenance</span>
-                                    </td>
-                                    <td class="px-6 py-4 text-sm text-secondary">-45 min delay</td>
-                                    <td class="px-6 py-4">
-                                        <span
-                                            class="bg-primary/20 text-primary text-xs px-2 py-1 rounded font-bold">Recovered</span>
-                                    </td>
-                                </tr>
-                                <tr class="hover:bg-primary/5 transition-colors">
-                                    <td class="px-6 py-4 font-mono text-sm text-primary">#SW-0023</td>
-                                    <td class="px-6 py-4 font-mono text-sm">VN456</td>
-                                    <td class="px-6 py-4 text-sm">VN-A391</td>
-                                    <td class="px-6 py-4 text-sm">VN-A520</td>
-                                    <td class="px-6 py-4">
-                                        <span
-                                            class="bg-primary/20 text-primary text-xs px-2 py-1 rounded">Weather</span>
-                                    </td>
-                                    <td class="px-6 py-4 text-sm text-primary">On-time</td>
-                                    <td class="px-6 py-4">
-                                        <span
-                                            class="bg-primary/20 text-primary text-xs px-2 py-1 rounded font-bold">Recovered</span>
-                                    </td>
-                                </tr>
-                                <tr class="hover:bg-primary/5 transition-colors">
-                                    <td class="px-6 py-4 font-mono text-sm text-primary">#SW-0022</td>
-                                    <td class="px-6 py-4 font-mono text-sm">VN789</td>
-                                    <td class="px-6 py-4 text-sm">VN-A672</td>
-                                    <td class="px-6 py-4 text-sm">VN-A720</td>
-                                    <td class="px-6 py-4">
-                                        <span
-                                            class="bg-[#f59e0b]/20 text-[#f59e0b] text-xs px-2 py-1 rounded">Crew</span>
-                                    </td>
-                                    <td class="px-6 py-4 text-sm text-[#f59e0b]">-1h 20min</td>
-                                    <td class="px-6 py-4">
-                                        <span
-                                            class="bg-[#f59e0b]/20 text-[#f59e0b] text-xs px-2 py-1 rounded font-bold">Pending</span>
-                                    </td>
+                            <tbody id="swap-events-tbody" class="divide-y divide-[#263537]">
+                                <tr>
+                                    <td colspan="7" class="px-6 py-8 text-center text-[#8aa3a6] animate-pulse">
+                                        Loading swap events...</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                     <div class="p-4 border-t border-[#263537] flex justify-between items-center">
-                        <p class="text-xs text-[#8aa3a6]">Showing 1-10 of 42 swap events</p>
-                        <div class="flex gap-2">
-                            <button class="px-3 py-1 rounded border border-[#263537] text-xs">Previous</button>
-                            <button class="px-3 py-1 rounded bg-primary text-[#111f22] text-xs font-bold">1</button>
-                            <button class="px-3 py-1 rounded border border-[#263537] text-xs">2</button>
-                            <button class="px-3 py-1 rounded border border-[#263537] text-xs">Next</button>
+                        <p id="pagination-info" class="text-xs text-[#8aa3a6]">Loading...</p>
+                        <div id="pagination-controls" class="flex gap-2">
+                            <!-- Rendered by JS -->
                         </div>
                     </div>
                 </section>
             </div>
         </div><!-- End main-wrapper -->
     </div><!-- End app-container -->
+
+    <!-- JS Controller -->
+    <script src="/static/js/aircraft_swap.js"></script>
 </body>
 
 </html>

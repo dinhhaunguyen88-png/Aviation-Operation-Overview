@@ -1,40 +1,291 @@
 {
-  "meta": { "schema_version": "1.1.0", "awf_version": "3.3.0" },
-  "project": { 
-      "name": "Aviation Operations Dashboard", 
-      "type": "Data Visualization / KPI Dashboard", 
-      "status": "In Development (Phase 3 Completed)" 
-  },
-  "tech_stack": { 
-      "backend": { "language": "Python", "framework": "Flask", "libraries": ["pandas", "zeep"] },
-      "frontend": { "language": "JavaScript (Vanilla)", "framework": "HTML/CSS (Custom Premium Design)", "charts": "Chart.js" },
-      "data": { "source": "AIMS API (SOAP)", "local_storage": "SQLite/CSV", "ingestion": "Background Scheduler" }
-  },
-  "database_schema": { 
-      "summary": "Tracks Flights, Crew, and Dashboard KPIs",
-      "tables": ["flights (real-time ops)", "crew (roster & status)", "kpi_history"],
-      "relationships": "Flights mapped to Aircraft; Crew mapped to Flights or Standby duties" 
-  },
-  "features": [
-      { "name": "Operations Day", "desc": "Custom day window 04:00 - 03:59 for operational metrics" },
-      { "name": "KPI: A/C Type Hour", "desc": "Breakdown of total block hours by Aircraft Type (A321, A320, etc.)" },
-      { "name": "KPI: Total Flight Completed", "desc": "Count of flights with valid ATA or Gate Arrival (On-Block)" },
-      { "name": "KPI: OTP", "desc": "On-Time Performance % calculated only for Completed Flights" },
-      { "name": "Charts: Operational Pulse", "desc": "Hourly flight volume trend" },
-      { "name": "Charts: Crew Distribution", "desc": "Status breakdown (FLY, SBY, OFF, SL)" }
-  ],
-  "business_rules": [
-      "Operational Window is 04:00 Local to 03:59 Next Day",
-      "OTP is strictly (OnTime / Completed Flights) * 100",
-      "Completed Flight definition: Has 'ata' OR 'on_block' time",
-      "Block Hours Fallback: If 'block_hours' missing, calc (OnBlock - OffBlock)",
-      "Colors: Warning (Red) for delays/sick, Success (Green) for high OTP/Completion"
-  ],
-  "knowledge_items": { 
-      "patterns": ["Consolidated Data Processor in `calculate_dashboard_summary`"],
-      "gotchas": [
-          "AIMS API sometimes returns null 'block_hours' -> Use On/Off diff fallback",
-          "Flight 'std' can be 'HH:MM:SS' or 'HH:MM' or ISO -> Use robust parsing"
-      ]
-  }
+    "meta": {
+        "schema_version": "1.1.0",
+        "awf_version": "4.0.2"
+    },
+    "project": {
+        "name": "Aviation Operations Dashboard",
+        "type": "Data Visualization / KPI Dashboard",
+        "status": "In Development (Phase 5: Advanced Analytics)",
+        "version": "v1.4"
+    },
+    "tech_stack": {
+        "backend": {
+            "language": "Python",
+            "framework": "Flask",
+            "libraries": [
+                "pandas",
+                "zeep",
+                "concurrent.futures",
+                "pytz",
+                "apscheduler",
+                "flask_limiter"
+            ]
+        },
+        "frontend": {
+            "language": "JavaScript (Vanilla)",
+            "framework": "HTML/CSS (Custom Premium Design)",
+            "charts": "Chart.js"
+        },
+        "data": {
+            "source": "AIMS API (SOAP)",
+            "local_storage": "Supabase / Redis",
+            "ingestion": "Background Scheduler + Fallback Sync",
+            "pagination": "fetch_all_rows() utility for Supabase 1000-row limit bypass"
+        },
+        "infrastructure": {
+            "tunnel": "Cloudflare Tunnel (cloudflared.exe)",
+            "auth": "X-API-Key header for protected endpoints",
+            "deployment": "Render (Procfile + render.yaml)"
+        }
+    },
+    "database_schema": {
+        "summary": "Tracks Flights, Crew, and Dashboard KPIs. Flights table stores flight_date as UTC scheduled date from AIMS.",
+        "tables": [
+            "flights",
+            "aims_leg_members",
+            "crew_flight_hours",
+            "crew_members",
+            "fact_roster",
+            "standby_records",
+            "etl_jobs",
+            "swap_events",
+            "swap_snapshots"
+        ],
+        "relationships": "flights JOIN aims_leg_members on (date, flight, dep). crew_flight_hours JOIN crew_members on crew_id.",
+        "important_notes": "flight_date in DB is the UTC date. Standard local fields: local_std, local_sta, local_etd, local_atd, local_tkof, local_tdwn, local_ata. crew_members has NO position column. crew_members.base has trailing spaces."
+    },
+    "api_endpoints": [
+        {
+            "path": "/api/health",
+            "explained": "Health check - kiểm tra server đang sống"
+        },
+        {
+            "path": "/api/status",
+            "explained": "System status - thông tin chi tiết server"
+        },
+        {
+            "path": "/api/data-window",
+            "explained": "7-day window range (D-2 to D+4)"
+        },
+        {
+            "path": "/api/dashboard/summary",
+            "explained": "KPI tổng hợp (flights, OTP, crew, aircraft)"
+        },
+        {
+            "path": "/api/dashboard/aircraft-summary",
+            "explained": "Chi tiết aircraft hoạt động trong ngày"
+        },
+        {
+            "path": "/api/dashboard/completed-flights",
+            "explained": "Danh sách chuyến bay đã hoàn thành, dùng cho verification popup"
+        },
+        {
+            "path": "/api/crew/top-stats",
+            "explained": "Top crew by flight hours (Bulk FTL). Cached 15min."
+        },
+        {
+            "path": "/api/crew",
+            "explained": "Danh sách crew + FTL data, paginated, searchable. Dual strategy: FTL-First (sort by hours) or Crew-First (sort by name/id). Overcomes Supabase 1000-row limit via fetch_all_rows()."
+        },
+        {
+            "path": "/api/crew/<id>",
+            "explained": "Chi tiết 1 crew member"
+        },
+        {
+            "path": "/api/crew/<id>/roster",
+            "explained": "Lịch bay của crew trong khoảng thời gian"
+        },
+        {
+            "path": "/api/crew/<id>/flight-hours",
+            "explained": "Lịch sử giờ bay của crew"
+        },
+        {
+            "path": "/api/standby",
+            "explained": "Danh sách crew standby (SBY, SL, CSL)"
+        },
+        {
+            "path": "/api/flights",
+            "explained": "Danh sách chuyến bay theo ngày"
+        },
+        {
+            "path": "/api/flights/<id>",
+            "explained": "Chi tiết 1 chuyến bay + crew"
+        },
+        {
+            "path": "/api/ftl/summary",
+            "explained": "FTL summary - tổng hợp giờ bay 28D/12M. Uses fetch_all_rows() for full dataset."
+        },
+        {
+            "path": "/api/ftl/alerts",
+            "explained": "FTL alerts - cảnh báo crew gần limit"
+        },
+        {
+            "path": "/api/ftl/export-csv",
+            "explained": "Export toàn bộ FTL data ra CSV. Uses fetch_all_rows() to get all crew."
+        },
+        {
+            "path": "/api/roster/heatmap",
+            "explained": "Roster heatmap data"
+        },
+        {
+            "path": "/api/alerts",
+            "explained": "Active alerts"
+        },
+        {
+            "path": "/api/export/<type>",
+            "explained": "Export data (crew, flights, standby, hours)"
+        },
+        {
+            "path": "/api/sync/force",
+            "explained": "Force trigger AIMS sync"
+        },
+        {
+            "path": "/api/cache/status",
+            "explained": "Cache status"
+        },
+        {
+            "path": "/api/cache/clear",
+            "explained": "Clear all cache"
+        },
+        {
+            "path": "/api/swap/summary",
+            "explained": "Swap KPIs: total swaps, impacted flights, swap rate, recovery rate, trend. Cached 5min. Params: period (24h/7d/30d)"
+        },
+        {
+            "path": "/api/swap/events",
+            "explained": "Paginated swap event log with category filter (MAINTENANCE/WEATHER/CREW/OPERATIONAL). Params: period, category, page, per_page"
+        },
+        {
+            "path": "/api/swap/reasons",
+            "explained": "Swap reasons breakdown by category with count and percentage. Cached 5min."
+        },
+        {
+            "path": "/api/swap/top-tails",
+            "explained": "Top impacted aircraft tail numbers ranked by swap frequency with severity badges. Cached 5min."
+        },
+        {
+            "path": "/api/swap/trend",
+            "explained": "Daily swap trend data for timeline visualization. Cached 5min."
+        }
+    ],
+    "frontend_pages": [
+        {
+            "path": "/",
+            "explained": "Main Dashboard - KPIs + Operational Focus"
+        },
+        {
+            "path": "/operations",
+            "explained": "Operations Overview"
+        },
+        {
+            "path": "/fleet",
+            "explained": "Fleet Health"
+        },
+        {
+            "path": "/crew-pairing",
+            "explained": "Crew Pairing"
+        },
+        {
+            "path": "/aircraft-swap",
+            "explained": "Aircraft Swap Analysis"
+        },
+        {
+            "path": "/ftl-list",
+            "explained": "FTL List - searchable crew FTL table with Base filter, CSV export"
+        },
+        {
+            "path": "/users",
+            "explained": "User Management"
+        },
+        {
+            "path": "/data-etl",
+            "explained": "Data ETL Monitoring"
+        }
+    ],
+    "features": [
+        {
+            "name": "Operations Day 7-Day Window",
+            "desc": "Custom day window D-2 to D+4 relative to current date. Dynamic cleanup ensures data freshness."
+        },
+        {
+            "name": "Local Time Conversion v2.0",
+            "desc": "Pre-calculated local station times (HH:MM) for all operational events based on airport_timezones.py mapping."
+        },
+        {
+            "name": "Bulk FTL API",
+            "desc": "High-performance aggregation of 28-day flight hours with caching (15min TTL)."
+        },
+        {
+            "name": "KPI: Total Flights v4.2",
+            "desc": "Count of flights in operational day. Uses base-number deduplication to handle rescheduling artifacts. Date-aware: future=0, past=all, today=real-time."
+        },
+        {
+            "name": "FTL List Page v2.0",
+            "desc": "Searchable, paginated crew FTL table. Dual-query strategy: FTL-First (query crew_flight_hours sorted, join crew_members) for hours sort, Crew-First (query crew_members paginated, join FTL) for name/id sort. Cross-table base filter uses over-fetch + Python filter. CSV export support."
+        },
+        {
+            "name": "Cloudflare Tunnel Access",
+            "desc": "External access via Cloudflare Tunnel with X-API-Key authentication for protected endpoints."
+        },
+        {
+            "name": "Supabase Pagination",
+            "desc": "fetch_all_rows() utility in data_processor.py. Bypasses Supabase default 1000-row limit via .range() loop. Applied to /api/crew, /api/ftl/summary, /api/ftl/export-csv."
+        },
+        {
+            "name": "FTL Smart Fallback",
+            "desc": "get_best_ftl_date() picks latest date with >5 non-zero crew records to avoid showing zeros from broken AIMS syncs."
+        },
+        {
+            "name": "Aircraft Swap Analysis v1.0",
+            "desc": "End-to-end swap detection: compares current AIMS flight data against first-seen snapshots. Classifies reasons (MAINTENANCE/WEATHER/CREW/OPERATIONAL), calculates KPIs, provides paginated event log, CSV export, auto-refresh. Module: swap_detector.py. Frontend: aircraft_swap.js + aircraft_swap.html."
+        }
+    ],
+    "business_rules": [
+        "Operational Window is 04:00 Local to 03:59 Next Day",
+        "Data Window is D-2 to D+4 relative to current date.",
+        "OTP is strictly (OnTime / Completed Flights) * 100",
+        "FTL 28D Calculation: SUM(block_time_minutes) of all flights for a crew_id in last 28 days",
+        "Deduplication v4.2: Group by base flight number + departure, prefer suffix versions or ARRIVED status to resolve AIMS rescheduling duplicates.",
+        "Aircraft Modal: Shows all flights from Ops Day regardless of Crew Assignment.",
+        "Date-aware completion: future=0, past=all, today=real-time."
+    ],
+    "knowledge_items": {
+        "patterns": [
+            "In-memory bulk aggregation to solve N+1 problems in Python",
+            "Throttled ThreadPoolExecutor for high-frequency fallback API calls",
+            "Base-number regex extraction (r'(\\d+)') for cross-system mapping",
+            "Airport timezone mapping via airport_timezones.py for local time conversion",
+            "FTL dual-query strategy: FTL-First vs Crew-First depending on sort field",
+            "Over-fetch + Python filter for cross-table filtering when Supabase REST can't JOIN",
+            "fetch_all_rows() pagination loop for Supabase queries exceeding 1000 rows",
+            "Swap detection via snapshot comparison: store first_seen_reg per flight, detect when current reg differs",
+            "Keyword-based reason classification with category priority ordering for AIMS mod log text"
+        ],
+        "gotchas": [
+            "AIMS FetchLegMembersPerDay (Bulk) often returns 0 results -> Use per-flight fallback",
+            "Server Restart: Port 5000 process may hang; kill PID before restarting if code changes don't apply.",
+            "Browser Cache: Update version string (e.g., v1.3) and use Ctrl+F5 to clear JS cache.",
+            "Double-filtering risk: Ensure API endpoints don't refilter data already processed by get_flights().",
+            "Cloudflare Tunnel: Frontend must include X-API-Key header in all /api/* requests.",
+            "Test suite: All protected API tests require X-API-Key header via api_key fixture.",
+            "Supabase REST default limit: query.execute() returns max 1000 rows. Must use fetch_all_rows() for large tables.",
+            "Supabase in_() limit: sending 1000+ IDs in in_() can exceed URL length. Batch or use alternative strategy.",
+            "crew_members.base has trailing spaces in DB (e.g. 'SGN  '). Use ilike('base', 'SGN%') not eq('base', 'SGN').",
+            "crew_members table has NO 'position' column. Don't filter/display position.",
+            "FTL smart fallback: get_best_ftl_date() picks latest date with actual data (>5 non-zero records) to avoid showing zeros from broken syncs.",
+            "FTL export CSV must also use fetch_all_rows() or will miss crew beyond first 1000.",
+            "swap_detector classify_swap_reason: keyword priority matters - MAINTENANCE keywords checked first, so 'Cabin crew shortage' matches MAINTENANCE (not CREW) due to keyword ordering.",
+            "detect_swaps() returns raw swap dicts without swap_event_id or detected_at fields - ETL layer adds those before DB insert."
+        ],
+        "conventions": [
+            "All times in DB are UTC. Local conversion happens in filter_operational_flights() (backend) and mapped in dashboard.js.",
+            "flight_date in DB = UTC scheduled date, NOT local operational day",
+            "Flight ID normalization: Use base number (integer part) for reliable matching.",
+            "API Key: Uses X_API_KEY env var (falls back to SUPABASE_KEY)",
+            "Scripts: scripts/db/ for SQL schemas + setup, scripts/sync/ for sync utilities. One-off scripts go to scripts/archive/.",
+            "Tests: pytest with fixtures for API key. All 173+ tests should pass (128 existing + 45 swap tests).",
+            "Swap DB tables: swap_events (event log) + swap_snapshots (first-seen aircraft per flight). Created via scripts/db/create_swap_tables.sql."
+        ]
+    }
 }

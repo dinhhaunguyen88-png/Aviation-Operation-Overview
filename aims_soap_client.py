@@ -25,7 +25,30 @@ class AIMSSoapClient:
     
     Requires zeep library for SOAP communication.
     Credentials must be configured in AIMS Option 7.1.
+    
+    Environment Variables:
+        AIMS_WSDL_URL: WSDL endpoint URL
+        AIMS_WS_USERNAME / AIMS_WS_PASSWORD: Main credentials (Crew API)
+        AIMS_WS_USERNAME_FLIGHTS / AIMS_WS_PASSWORD_FLIGHTS: Flight API credentials
     """
+    
+    # Env key variants for backward compatibility
+    _ENV_KEYS = {
+        "username": ["AIMS_WS_USERNAME"],
+        "password": ["AIMS_WS_PASSWORD"],
+        "username_flights": ["AIMS_WS_USERNAME_FLIGHTS", "AIMS_WS_USERNAME_FLight"],
+        "password_flights": ["AIMS_WS_PASSWORD_FLIGHTS", "AIMS_WS_PASSWORD_Flight"],
+        "wsdl_url": ["AIMS_WSDL_URL"]
+    }
+    
+    @staticmethod
+    def _get_env(*keys: str, default: str = None) -> str:
+        """Get first available env var from list of keys."""
+        for key in keys:
+            val = os.getenv(key)
+            if val:
+                return val
+        return default
     
     def __init__(
         self,
@@ -41,13 +64,15 @@ class AIMSSoapClient:
             username: Web service username
             password: Web service password
         """
-        self.wsdl_url = wsdl_url or os.getenv("AIMS_WSDL_URL")
-        self.username = username or os.getenv("AIMS_WS_USERNAME")
-        self.password = password or os.getenv("AIMS_WS_PASSWORD")
+        # Main credentials
+        self.wsdl_url = wsdl_url or self._get_env(*self._ENV_KEYS["wsdl_url"])
+        self.username = username or self._get_env(*self._ENV_KEYS["username"])
+        self.password = password or self._get_env(*self._ENV_KEYS["password"])
         
-        # Flight specific credentials
-        self.username_flights = os.getenv("AIMS_WS_USERNAME_FLIGHTS") or self.username
-        self.password_flights = os.getenv("AIMS_WS_PASSWORD_FLIGHTS") or self.password
+        # Flight API credentials (separate permission set)
+        self.username_flights = self._get_env(*self._ENV_KEYS["username_flights"]) or self.username
+        self.password_flights = self._get_env(*self._ENV_KEYS["password_flights"]) or self.password
+        
         
         self.client = None
         self.session_id = None
@@ -598,6 +623,114 @@ class AIMSSoapClient:
         except Exception as e:
             logger.error(f"GetFlightsRange failed: {e}")
             raise
+
+    def fetch_flight_mod_log(
+        self,
+        from_date: date,
+        to_date: date
+    ) -> List[Dict[str, Any]]:
+        """
+        Fetch flight schedule modification log (Method: FlightScheduleModificationLog).
+        Used to find 'Deleted' or 'Cancelled' flights not shown in main schedule.
+        """
+        self._ensure_connection()
+        
+        try:
+            from_dt = self._format_date(from_date)
+            to_dt = self._format_date(to_date)
+            
+            # Use flight credentials (this API requires flight permission set)
+            user = self.username_flights
+            pwd = self.password_flights
+            
+            # Modification Date Range (When the change happened)
+            # We want changes made anytime, so set wide range or match flight date range?
+            # Usually users scan for changes made "recently" for flights in "future".
+            # But here we want status of past/present flights.
+            # Let's assume we want all logs for these flights, so OnBeg can be far past.
+            # Or maybe "On" parameters filter by when the modification happened.
+            # Safety: Set OnBeg to 1 year ago, OnEnd to Tomorrow.
+            
+            today = date.today()
+            on_beg = today - timedelta(days=30) # Scan last 30 days of changes
+            on_end = today + timedelta(days=2)
+            
+            on_beg_dt = self._format_date(on_beg)
+            on_end_dt = self._format_date(on_end)
+
+            response = self.client.service.FlightScheduleModificationLog(
+                UN=user,
+                PSW=pwd,
+                ForBegDD=from_dt["DD"],
+                ForBegMM=from_dt["MM"],
+                ForBegYYYY=from_dt["YYYY"],
+                ForEndDD=to_dt["DD"],
+                ForEndMM=to_dt["MM"],
+                ForEndYYYY=to_dt["YYYY"],
+                # Modification Window
+                OnBegDD=on_beg_dt["DD"],
+                OnBegMM=on_beg_dt["MM"],
+                OnBegYYYY=on_beg_dt["YYYY"],
+                OnBegHHrs="00",
+                OnBegMMin="00",
+                OnEndDD=on_end_dt["DD"],
+                OnEndMM=on_end_dt["MM"],
+                OnEndYYYY=on_end_dt["YYYY"],
+                OnEndHHrs="23",
+                OnEndMMin="59"
+            )
+            
+            results = []
+            
+            if hasattr(response, 'FltsSchedModificationList') and response.FltsSchedModificationList:
+                items = response.FltsSchedModificationList
+                if hasattr(items, 'TAimsFltsSchedModLogItem'):
+                    items = items.TAimsFltsSchedModLogItem
+                
+                if not isinstance(items, list):
+                    items = [items]
+                    
+                for item in items:
+                    flt_num = getattr(item, 'FltsSchedModLog_Flt', None)
+                    suffix = getattr(item, 'FltsSchedModLog_LegCd', '') or ''
+                    full_flt = str(flt_num) + str(suffix).strip() if flt_num else None
+                    
+                    status = getattr(item, 'FltsSchedModLog_Status', '')
+                    
+                    # Extract field-level change details for swap detection
+                    field_changed = getattr(item, 'FltsSchedModLog_Field', '') or \
+                                    getattr(item, 'FltsSchedModLog_FieldChanged', '') or ''
+                    old_value = getattr(item, 'FltsSchedModLog_OldValue', '') or \
+                                getattr(item, 'FltsSchedModLog_Old', '') or ''
+                    new_value = getattr(item, 'FltsSchedModLog_NewValue', '') or \
+                                getattr(item, 'FltsSchedModLog_New', '') or ''
+                    modified_by = getattr(item, 'FltsSchedModLog_ModifiedBy', '') or \
+                                  getattr(item, 'FltsSchedModLog_User', '') or ''
+                    modified_at = getattr(item, 'FltsSchedModLog_ModifiedAt', '') or \
+                                  getattr(item, 'FltsSchedModLog_DateTime', '') or ''
+                    
+                    results.append({
+                        "flight_number": full_flt,
+                        "flight_date": getattr(item, 'FltsSchedModLog_Day', ''),
+                        "status_desc": status,
+                        "departure": getattr(item, 'FltsSchedModLog_Dep', ''),
+                        "arrival": getattr(item, 'FltsSchedModLog_Arr', ''),
+                        "raw_status": status,
+                        # Enhanced fields for swap detection
+                        "field_changed": field_changed,
+                        "old_value": old_value,
+                        "new_value": new_value,
+                        "modified_by": modified_by,
+                        "modified_at": modified_at,
+                    })
+            
+            logger.info(f"FlightScheduleModificationLog returned {len(results)} records")
+            return results
+
+        except Exception as e:
+            logger.error(f"FlightScheduleModificationLog failed: {e}")
+            raise
+
     # Miscellaneous Methods
     # =========================================================
     
@@ -623,34 +756,93 @@ class AIMSSoapClient:
             # So I should use MAIN credentials?
             # I will try Main credentials first.
             
-            response = self.client.service.FetchLegMembers(
-                UN=self.username,
-                PSW=self.password,
-                DD=dt["DD"],
-                MM=dt["MM"],
-                YY=dt["YY"],
-                Flight=flight_number,
-                DEP=dep_airport
-            )
+            # Try with Flight credentials first as it's more common for this service
+            try:
+                response = self.client.service.FetchLegMembers(
+                    UN=self.username_flights,
+                    PSW=self.password_flights,
+                    DD=dt["DD"],
+                    MM=dt["MM"],
+                    YY=dt["YY"],
+                    Flight=flight_number,
+                    DEP=dep_airport
+                )
+                if response and hasattr(response, 'ErrorExplanation') and "Invalid credentials" in str(response.ErrorExplanation):
+                    raise Exception("Invalid credentials with flight user")
+            except Exception as e:
+                if "Invalid credentials" in str(e):
+                    logger.debug(f"Retrying FetchLegMembers with main credentials for {flight_number}...")
+                    response = self.client.service.FetchLegMembers(
+                        UN=self.username,
+                        PSW=self.password,
+                        DD=dt["DD"],
+                        MM=dt["MM"],
+                        YY=dt["YY"],
+                        Flight=flight_number,
+                        DEP=dep_airport
+                    )
+                else:
+                    raise
             
             crew = []
             if response:
-                # Unwrap if needed
+                # Unwrap if needed (AIMS specific structure)
                 source = response
-                if hasattr(response, 'TAIMSLegCrew'):
+                
+                # Check for LegMembs or TAIMSLegCrew
+                if hasattr(response, 'LegMembs') and response.LegMembs is not None:
+                    source = response.LegMembs
+                elif hasattr(response, 'TAIMSLegCrew') and response.TAIMSLegCrew is not None:
                     source = response.TAIMSLegCrew
                 
+                # Unwrap list-like containers
+                if hasattr(source, 'TAIMSGetLegMembers') and getattr(source, 'TAIMSGetLegMembers') is not None:
+                    source = getattr(source, 'TAIMSGetLegMembers')
+                elif hasattr(source, 'TAIMSLegCrew') and getattr(source, 'TAIMSLegCrew') is not None:
+                    source = getattr(source, 'TAIMSLegCrew')
+                
+                # Further unwrap if it's the TAIMSGetLegMembers structure
+                if isinstance(source, list) and len(source) > 0:
+                    item = source[0]
+                    if hasattr(item, 'FMember') and item.FMember is not None:
+                        if hasattr(item.FMember, 'TAIMSMember') and item.FMember.TAIMSMember is not None:
+                            source = item.FMember.TAIMSMember
+                
                 if not isinstance(source, list):
-                    source = [source]
+                    source = [source] if source else []
+                
+                logger.debug(f"Unwrapped {flight_number} crew: {type(source)} (items: {len(source)})")
                     
                 for c in source:
-                    crew_id = getattr(c, 'CrewID', '') or getattr(c, 'ID', '')
-                    if crew_id:
+                    if not c:
+                        continue
+                        
+                    # Robust attribute extraction (AIMS response can be tricky)
+                    def get_val(obj, keys):
+                        for k in keys:
+                            # Try attribute access
+                            val = getattr(obj, k, None)
+                            if val is not None:
+                                return val
+                            # Try dictionary access
+                            try:
+                                if k in obj:
+                                    return obj[k]
+                            except (TypeError, KeyError):
+                                pass
+                        return ""
+
+                    crew_id = str(get_val(c, ['id', 'CrewID', 'ID', 'cid']))
+                    
+                    if crew_id and crew_id.strip():
                         crew.append({
-                            "crew_id": str(crew_id),
-                            "crew_name": getattr(c, 'Name', '') or getattr(c, 'CrewName', '') or '',
-                            "position": getattr(c, 'Position', '') or getattr(c, 'Pos', '') or '',
-                            "category": getattr(c, 'Category', '') or ''
+                            "flight_date": flight_date.isoformat(),
+                            "flight_number": flight_number,
+                            "departure": dep_airport,
+                            "crew_id": crew_id.strip(),
+                            "crew_name": get_val(c, ['name', 'Name', 'CrewName', 'fullname']),
+                            "position": get_val(c, ['pos', 'Position', 'Pos', 'rank']),
+                            "category": get_val(c, ['category', 'Category', 'cat'])
                         })
             
             return crew
@@ -659,9 +851,79 @@ class AIMSSoapClient:
             logger.warning(f"GetLegMembers failed for {flight_number}: {e}")
             return []
 
+    def fetch_leg_members_per_day(self, target_date: date) -> List[Dict[str, Any]]:
+        """
+        Get all crew assignments for all flights on a day (Method: FetchLegMembersPerDay).
+        More efficient than calling get_leg_members for each flight.
+        
+        Args:
+            target_date: Date to fetch crew for
+            
+        Returns:
+            List of crew assignments with flight info
+        """
+        self._ensure_connection()
+        
+        try:
+            dt = self._format_date(target_date)
+            
+            response = self.client.service.FetchLegMembersPerDay(
+                UN=self.username,
+                PSW=self.password,
+                DD=dt["DD"],
+                MM=dt["MM"],
+                YY=dt["YY"]
+            )
+            
+            all_crew = []
+            
+            if response:
+                # Unwrap response - structure may be nested
+                source = response
+                if hasattr(response, 'LegMembersList'):
+                    source = response.LegMembersList
+                if hasattr(source, 'TAIMSLegMembersPerDay'):
+                    source = source.TAIMSLegMembersPerDay
+                    
+                if not isinstance(source, list):
+                    source = [source] if source else []
+                
+                for item in source:
+                    # Each item contains flight info + crew list
+                    flight_num = getattr(item, 'FlightNo', '') or getattr(item, 'Flight', '')
+                    departure = getattr(item, 'Dep', '') or getattr(item, 'DEP', '')
+                    
+                    # Get crew list for this flight
+                    crew_list = getattr(item, 'CrewList', None) or getattr(item, 'LegCrew', None)
+                    if crew_list:
+                        if hasattr(crew_list, 'TAIMSLegCrew'):
+                            crew_list = crew_list.TAIMSLegCrew
+                        if not isinstance(crew_list, list):
+                            crew_list = [crew_list]
+                            
+                        for c in crew_list:
+                            crew_id = getattr(c, 'CrewID', '') or getattr(c, 'ID', '')
+                            if crew_id:
+                                all_crew.append({
+                                    "flight_date": target_date.isoformat(),
+                                    "flight_number": str(flight_num),
+                                    "departure": departure,
+                                    "crew_id": str(crew_id),
+                                    "crew_name": getattr(c, 'Name', '') or getattr(c, 'CrewName', ''),
+                                    "position": getattr(c, 'Position', '') or getattr(c, 'Pos', ''),
+                                    "category": getattr(c, 'Category', '') or ''
+                                })
+            
+            logger.info(f"FetchLegMembersPerDay returned {len(all_crew)} crew assignments")
+            return all_crew
+            
+        except Exception as e:
+            logger.error(f"FetchLegMembersPerDay failed: {e}")
+            return []
+
     def get_aircraft_list(self) -> List[Dict[str, Any]]:
         """
-        Get list of aircraft (Method #27: FetchAircrafts).
+        Get list of aircraft (Method: FetchAircraft).
         
         Returns:
             List of aircraft with registration and type.
@@ -669,7 +931,7 @@ class AIMSSoapClient:
         self._ensure_connection()
         
         try:
-            response = self.client.service.FetchAircrafts(
+            response = self.client.service.FetchAircraft(
                 UN=self.username,
                 PSW=self.password
             )

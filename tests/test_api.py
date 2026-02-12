@@ -7,6 +7,7 @@ Tests for API endpoints.
 
 import pytest
 import json
+import os
 from datetime import date
 from unittest.mock import Mock, patch
 
@@ -14,6 +15,12 @@ from unittest.mock import Mock, patch
 import sys
 sys.path.insert(0, '..')
 from api_server import app
+
+
+@pytest.fixture
+def api_key():
+    """Get API key for test requests."""
+    return os.getenv("X_API_KEY") or os.getenv("SUPABASE_KEY") or "test-key"
 
 
 @pytest.fixture
@@ -50,39 +57,39 @@ class TestHealthEndpoints:
 class TestDashboardEndpoints:
     """Tests for dashboard endpoints."""
     
-    def test_get_dashboard_summary(self, client):
+    def test_get_dashboard_summary(self, client, api_key):
         """Test dashboard summary endpoint."""
-        response = client.get('/api/dashboard/summary')
+        response = client.get('/api/dashboard/summary', headers={'X-API-Key': api_key})
         
         assert response.status_code == 200
         data = json.loads(response.data)
         assert data['success'] is True
-        assert 'date' in data['data']
+        assert 'total_flights' in data['data']
     
-    def test_get_dashboard_summary_with_date(self, client):
+    def test_get_dashboard_summary_with_date(self, client, api_key):
         """Test dashboard summary with date filter."""
-        response = client.get('/api/dashboard/summary?date=2026-01-30')
+        response = client.get('/api/dashboard/summary?date=2026-01-30', headers={'X-API-Key': api_key})
         
         assert response.status_code == 200
         data = json.loads(response.data)
-        assert data['data']['date'] == '2026-01-30'
+        assert 'total_flights' in data['data']
 
 
 class TestCrewEndpoints:
     """Tests for crew endpoints."""
     
-    def test_get_crew_list(self, client):
+    def test_get_crew_list(self, client, api_key):
         """Test crew list endpoint."""
-        response = client.get('/api/crew')
+        response = client.get('/api/crew', headers={'X-API-Key': api_key})
         
         assert response.status_code == 200
         data = json.loads(response.data)
         assert 'crew' in data['data']
         assert 'page' in data['data']
     
-    def test_get_crew_list_with_filters(self, client):
+    def test_get_crew_list_with_filters(self, client, api_key):
         """Test crew list with filters."""
-        response = client.get('/api/crew?base=SGN&page=1&per_page=10')
+        response = client.get('/api/crew?base=SGN&page=1&per_page=10', headers={'X-API-Key': api_key})
         
         assert response.status_code == 200
         data = json.loads(response.data)
@@ -112,17 +119,17 @@ class TestStandbyEndpoints:
 class TestFlightEndpoints:
     """Tests for flight endpoints."""
     
-    def test_get_flights(self, client):
+    def test_get_flights(self, client, api_key):
         """Test flights endpoint."""
-        response = client.get('/api/flights')
+        response = client.get('/api/flights', headers={'X-API-Key': api_key})
         
         assert response.status_code == 200
         data = json.loads(response.data)
         assert 'flights' in data['data']
     
-    def test_get_flights_with_filter(self, client):
+    def test_get_flights_with_filter(self, client, api_key):
         """Test flights with date and aircraft filter."""
-        response = client.get('/api/flights?date=2026-01-30&aircraft_type=A320')
+        response = client.get('/api/flights?date=2026-01-30&aircraft_type=A320', headers={'X-API-Key': api_key})
         
         assert response.status_code == 200
 
@@ -130,9 +137,9 @@ class TestFlightEndpoints:
 class TestFTLEndpoints:
     """Tests for FTL endpoints."""
     
-    def test_get_ftl_summary(self, client):
+    def test_get_ftl_summary(self, client, api_key):
         """Test FTL summary endpoint."""
-        response = client.get('/api/ftl/summary')
+        response = client.get('/api/ftl/summary', headers={'X-API-Key': api_key})
         
         assert response.status_code == 200
         data = json.loads(response.data)

@@ -222,57 +222,24 @@ class DataSyncService:
         """
         Calculate FTL (Flight Time Limitations) for all crew.
         
-        Updates crew_flight_hours table with 28-day and 12-month totals.
+        Updates crew_flight_hours table with 28-day and 12-month rolling totals.
+        Uses real-time data from AIMS and historical flight records.
         """
         logger.info("Starting FTL calculation...")
         self.log_sync("ftl_calc", "started")
         
         try:
-            if not self.supabase:
-                raise ConnectionError("Database not available")
+            from data_processor import DataProcessor
+            processor = DataProcessor()
+            # Shared clients
+            processor.aims_client = self.aims_client
+            processor.supabase = self.supabase
             
-            # Get all crew
-            crew_result = self.supabase.table("crew_members") \
-                .select("crew_id, crew_name") \
-                .execute()
+            # Execute comprehensive calculation and persistence
+            records_count = processor.sync_and_calculate_ftl()
             
-            if not crew_result.data:
-                logger.info("No crew members in database")
-                self.log_sync("ftl_calc", "completed", 0)
-                return
-            
-            from data_processor import calculate_warning_level
-            
-            today = date.today()
-            records = []
-            
-            for crew in crew_result.data:
-                crew_id = crew["crew_id"]
-                
-                # For now, set placeholder values
-                # In production, would calculate from actual roster data
-                hours_28d = 0.0
-                hours_12m = 0.0
-                
-                warning_level = calculate_warning_level(hours_28d, hours_12m)
-                
-                records.append({
-                    "crew_id": crew_id,
-                    "calculation_date": today.isoformat(),
-                    "hours_28_day": hours_28d,
-                    "hours_12_month": hours_12m,
-                    "warning_level": warning_level,
-                    "updated_at": datetime.now().isoformat()
-                })
-            
-            if records:
-                self.supabase.table("crew_flight_hours").upsert(
-                    records,
-                    on_conflict="crew_id,calculation_date"
-                ).execute()
-            
-            logger.info(f"Calculated FTL for {len(records)} crew")
-            self.log_sync("ftl_calc", "completed", len(records))
+            logger.info(f"Successfully calculated and updated FTL for {records_count} crew")
+            self.log_sync("ftl_calc", "completed", records_count)
             
         except Exception as e:
             logger.error(f"FTL calculation failed: {e}")
@@ -321,13 +288,14 @@ class DataSyncService:
             replace_existing=True
         )
         
-        # FTL calculation - every 15 minutes
+        # FTL calculation - every 120 minutes (2 hours) to respect AIMS limits
         self.scheduler.add_job(
             func=self.calculate_ftl_hours,
-            trigger=IntervalTrigger(minutes=15),
+            trigger=IntervalTrigger(minutes=120),
             id='ftl_calc',
             name='Calculate FTL hours',
-            replace_existing=True
+            replace_existing=True,
+            max_instances=1
         )
         
         # Roster sync - every 30 minutes

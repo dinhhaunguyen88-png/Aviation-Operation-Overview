@@ -29,9 +29,15 @@
                     </div>
                 </div>
                 <div class="header-center">
-                    <div class="date-filter">
+                    <div class="date-filter" style="display: flex; align-items: center; gap: 6px;">
                         <label for="filter-date">Ngày:</label>
+                        <button id="date-prev-btn" class="btn btn-secondary"
+                            style="padding: 4px 10px; font-size: 1.1rem;" title="Previous day">◀</button>
                         <input type="date" id="filter-date" class="date-input">
+                        <button id="date-next-btn" class="btn btn-secondary"
+                            style="padding: 4px 10px; font-size: 1.1rem;" title="Next day">▶</button>
+                        <button id="date-today-btn" class="btn btn-primary"
+                            style="padding: 4px 10px; font-size: 0.8rem;" title="Go to today">Today</button>
                         <button id="refresh-btn" class="btn btn-primary">
                             <span class="icon">🔄</span> Refresh
                         </button>
@@ -61,12 +67,16 @@
                 <!-- KPI Cards Row - Balanced 4x2 Grid -->
                 <section class="kpi-section">
                     <div class="kpi-grid">
-                        <!-- 1. Total Crew -->
-                        <div class="kpi-card">
-                            <div class="kpi-icon crew-icon">👥</div>
+                        <!-- 1. Crew Call Sick (SL + CSL) -->
+                        <div class="kpi-card warning">
+                            <div class="kpi-icon sick-icon">🏥</div>
                             <div class="kpi-content">
-                                <span class="kpi-label">Total Crew</span>
-                                <span class="kpi-value" id="total-crew">--</span>
+                                <span class="kpi-label">Crew Call Sick</span>
+                                <span class="kpi-value" id="crew-sick-total">--</span>
+                                <span class="kpi-sub" id="crew-sick-detail"
+                                    style="font-size: 0.65rem; opacity: 0.8; display: block; margin-top: 2px;">
+                                    CPT:- FO:- PU:- FA:-
+                                </span>
                             </div>
                         </div>
 
@@ -91,11 +101,12 @@
                         </div>
 
                         <!-- 4. Total Flight Completed (New) -->
-                        <div class="kpi-card success">
+                        <div class="kpi-card success clickable" id="flights-completed-card" style="cursor: pointer;">
                             <div class="kpi-icon check-icon">✅</div>
                             <div class="kpi-content">
                                 <span class="kpi-label">Total Flight Completed</span>
                                 <span class="kpi-value" id="total-completed">--</span>
+                                <span class="kpi-hint" style="font-size: 0.7rem; opacity: 0.7;">Click for details</span>
                             </div>
                         </div>
 
@@ -159,10 +170,7 @@
                                 </select>
                                 <select id="aircraft-filter" class="select-input">
                                     <option value="">All Aircraft</option>
-                                    <option value="A320">A320</option>
-                                    <option value="A321">A321</option>
-                                    <option value="330">A330</option>
-                                    <option value="787">B787</option>
+                                    <!-- Populated dynamically by JS -->
                                 </select>
                             </div>
                         </div>
@@ -180,9 +188,9 @@
                                         <th>STA</th>
                                         <th>ETD</th>
                                         <th>ETA</th>
+                                        <th>ATD</th>
                                         <th>TKof</th>
                                         <th>TDwn</th>
-                                        <th>ATD</th>
                                         <th>ATA</th>
                                     </tr>
                                 </thead>
@@ -298,10 +306,7 @@
                             <select id="ac-type-filter" class="select-input"
                                 style="padding: 0.3rem 0.5rem; font-size: 0.85rem;">
                                 <option value="">All Types</option>
-                                <option value="321">A321</option>
-                                <option value="320">A320</option>
-                                <option value="32W">A321XLR (32W)</option>
-                                <option value="330">A330</option>
+                                <!-- Populated dynamically by JS -->
                             </select>
                         </div>
                         <button class="btn btn-secondary" id="close-aircraft-modal"
@@ -329,6 +334,47 @@
                     </div>
                     <div class="modal-footer" style="margin-top: 1rem; text-align: right;">
                         <span id="aircraft-total" style="opacity: 0.7;">Total: -- aircraft</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Completed Flights Modal -->
+            <div class="modal-overlay" id="completed-flights-modal" style="display: none;">
+                <div class="modal-content" style="max-width: 1000px; max-height: 80vh; overflow: auto;">
+                    <div class="modal-header"
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; gap: 1rem;">
+                            <h3 style="margin: 0;">✅ Completed Flights Detail</h3>
+                            <span id="completed-flights-summary" style="opacity: 0.7; font-size: 0.85rem;"></span>
+                        </div>
+                        <button class="btn btn-secondary" id="close-completed-modal"
+                            style="padding: 0.3rem 0.8rem;">✕</button>
+                    </div>
+                    <div class="modal-body">
+                        <table class="data-table" id="completed-flights-table" style="width: 100%;">
+                            <thead>
+                                <tr>
+                                    <th>#</th>
+                                    <th>FLT</th>
+                                    <th>REG</th>
+                                    <th>AC</th>
+                                    <th>Route</th>
+                                    <th>STD</th>
+                                    <th>STA</th>
+                                    <th>ATD</th>
+                                    <th>ATA</th>
+                                    <th>Method</th>
+                                </tr>
+                            </thead>
+                            <tbody id="completed-flights-tbody">
+                                <tr>
+                                    <td colspan="10" style="text-align: center;">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="modal-footer" style="margin-top: 1rem; text-align: right;">
+                        <span id="completed-flights-total" style="opacity: 0.7;">Total: -- completed</span>
                     </div>
                 </div>
             </div>

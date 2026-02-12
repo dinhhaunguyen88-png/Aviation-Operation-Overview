@@ -16,7 +16,8 @@ let state = {
     dataSource: 'AIMS',
     aircraftFilter: '',
     flightLimit: '20',
-    isLoading: false
+    isLoading: false,
+    dataWindow: { min_date: null, max_date: null, today: null }
 };
 
 // =====================================================
@@ -74,32 +75,26 @@ function formatTime(timeStr) {
     return timeStr.substring(0, 5);
 }
 
-// Convert UTC time to local station time
-// timeStr: HH:MM:SS or HH:MM format (UTC)
-// airportCode: 3-letter IATA code to determine timezone
-function convertToLocalTime(timeStr, airportCode) {
+// Format time string to HH:mm (Local Station Time)
+function convertToLocalTime(timeStr, airportCode, flightObject) {
+    if (!flightObject) return timeStr ? timeStr.substring(0, 5) : '--:--';
+
+    // Map time fields to their pre-calculated local versions from backend
+    const localMap = {
+        [flightObject.std]: flightObject.local_std,
+        [flightObject.sta]: flightObject.local_sta,
+        [flightObject.etd]: flightObject.local_etd,
+        [flightObject.eta]: flightObject.local_eta,
+        [flightObject.tkof]: flightObject.local_tkof,
+        [flightObject.tdwn]: flightObject.local_tdwn,
+        [flightObject.atd]: flightObject.local_atd,
+        [flightObject.ata]: flightObject.local_ata
+    };
+
+    if (localMap[timeStr]) return localMap[timeStr];
+
     if (!timeStr) return '--:--';
-
-    // Parse time string
-    const parts = timeStr.split(':');
-    let hours = parseInt(parts[0], 10);
-    const minutes = parseInt(parts[1], 10);
-
-    // Get timezone offset for airport (default to UTC+7 for Vietnam)
-    const tzOffset = AIRPORT_TIMEZONES[airportCode] || 7;
-
-    // Add timezone offset
-    hours = hours + tzOffset;
-
-    // Handle day overflow
-    if (hours >= 24) hours -= 24;
-    if (hours < 0) hours += 24;
-
-    // Format with leading zeros
-    const hh = hours.toString().padStart(2, '0');
-    const mm = minutes.toString().padStart(2, '0');
-
-    return `${hh}:${mm}`;
+    return timeStr.substring(0, 5);
 }
 
 function showToast(message, type = 'info') {
@@ -120,6 +115,7 @@ async function apiCall(endpoint, options = {}) {
         const response = await fetch(url, {
             headers: {
                 'Content-Type': 'application/json',
+                'X-API-Key': window.API_KEY || '',
                 ...options.headers
             },
             ...options
@@ -153,7 +149,14 @@ async function loadDashboardSummary() {
             if (el) el.textContent = val;
         };
 
-        updateKPI('total-crew', data.total_crew || 0);
+        // Crew Call Sick (SL + CSL with position breakdown)
+        updateKPI('crew-sick-total', data.crew_sick_total || 0);
+        const bp = data.crew_sick_by_position || {};
+        const detailEl = document.getElementById('crew-sick-detail');
+        if (detailEl) {
+            detailEl.textContent = `CPT:${bp.CPT || 0}  FO:${bp.FO || 0}  PU:${bp.PU || 0}  FA:${bp.FA || 0}`;
+        }
+
         updateKPI('total-ac-operation', data.total_aircraft_operation || 0);
 
         // KPI 3: A/C Breakdown (Use innerHTML for formatting)
@@ -277,6 +280,11 @@ async function loadFlights() {
         const tbody = document.getElementById('flights-tbody');
         let flights = data.flights || [];
 
+        // Populate aircraft type filter dynamically
+        const acTypes = new Set();
+        flights.forEach(f => { if (f.aircraft_type) acTypes.add(f.aircraft_type.trim()); });
+        populateAircraftTypeDropdown('aircraft-filter', acTypes);
+
         // Note: API returns ops day flights (prev + today + next day)
         // No additional frontend filtering needed - API handles date filtering
 
@@ -285,18 +293,34 @@ async function loadFlights() {
         const limit = state.flightLimit || '20';
 
         // Helper: Parse flight time to Date object
+        // Create local date for comparison - handles overnight flights correctly
         const parseFlightTime = (flight) => {
-            if (!flight.std) return null;
-            if (flight.std.includes('T')) {
-                return new Date(flight.std);
-            } else {
-                // Use flight_date + std (HH:mm:ss or HH:mm)
-                const timeParts = flight.std.split(':');
-                const flightDate = new Date(flight.flight_date);
-                flightDate.setHours(parseInt(timeParts[0]), parseInt(timeParts[1]), 0, 0);
+            const timeStr = flight.local_std || flight.std;
+            if (!timeStr) return null;
+
+            try {
+                const timeParts = timeStr.split(':');
+                const hours = parseInt(timeParts[0]);
+                const minutes = parseInt(timeParts[1]);
+
+                // Use local_flight_date if available (more accurate for overnight flights)
+                // Otherwise use flight_date and adjust for overnight window (00:00-03:59 = next day)
+                let dateStr = flight.local_flight_date || flight.flight_date;
+                const flightDate = new Date(dateStr);
+
+                // If local_flight_date is not available but local_std is before 04:00,
+                // this is an overnight flight - add 1 day to flight_date
+                if (!flight.local_flight_date && hours < 4) {
+                    flightDate.setDate(flightDate.getDate() + 1);
+                }
+
+                flightDate.setHours(hours, minutes, 0, 0);
                 return flightDate;
+            } catch (e) {
+                return null;
             }
         };
+
 
         // Add parsed time to each flight
         flights = flights.map(f => ({
@@ -310,40 +334,50 @@ async function loadFlights() {
 
         let displayFlights = [];
 
-        if (limit === '20') {
-            // "20 Closest" logic: Sort by absolute time difference from now
-            displayFlights = validFlights
-                .sort((a, b) => Math.abs(a._timeDiff) - Math.abs(b._timeDiff))
-                .slice(0, 20)
-                .sort((a, b) => a._flightTime - b._flightTime); // Re-sort by STD for display
+        if (limit === '20' || limit === '30') {
+            // "Operational Focus" logic: 2h before, 1h after now
+            // Focus on approximately 30 flights centered on Now
+            const twoHoursAgo = now.getTime() - (2 * 60 * 60 * 1000);
+            const oneHourHence = now.getTime() + (1 * 60 * 60 * 1000);
+
+            // Flights within the (-2h, +1h) window
+            let focusFlights = validFlights.filter(f =>
+                f._flightTime.getTime() >= twoHoursAgo && f._flightTime.getTime() <= oneHourHence
+            );
+
+            if (focusFlights.length < 15) {
+                // If window is too sparse, just take the 30 closest to Now
+                displayFlights = validFlights
+                    .sort((a, b) => Math.abs(a._timeDiff) - Math.abs(b._timeDiff))
+                    .slice(0, 30)
+                    .sort((a, b) => a._flightTime - b._flightTime);
+            } else {
+                // If window is too busy, prioritize those closest to Now to keep it around ~30-40
+                if (focusFlights.length > 50) {
+                    displayFlights = focusFlights
+                        .sort((a, b) => Math.abs(a._timeDiff) - Math.abs(b._timeDiff))
+                        .slice(0, 40) // Give a bit more if it's busy
+                        .sort((a, b) => a._flightTime - b._flightTime);
+                } else {
+                    displayFlights = focusFlights.sort((a, b) => a._flightTime - b._flightTime);
+                }
+            }
         } else if (limit === 'all') {
             // Show all, sorted by STD
             displayFlights = validFlights.sort((a, b) => a._flightTime - b._flightTime);
         } else {
             // 50, 100, 200 logic:
-            // Priority 1: Flights departing in the next 1 hour (upcoming)
-            // Priority 2: Flights already departed (completed/in-progress)
-            // Priority 3: Future flights beyond 1 hour
             const numLimit = parseInt(limit);
-            const oneHourFromNow = now.getTime() + (60 * 60 * 1000);
 
-            const upcoming = validFlights.filter(f =>
-                f._flightTime >= now && f._flightTime <= oneHourFromNow
-            ).sort((a, b) => a._flightTime - b._flightTime);
-
-            const completed = validFlights.filter(f =>
-                f._flightTime < now
-            ).sort((a, b) => b._flightTime - a._flightTime); // Most recent first
-
-            const future = validFlights.filter(f =>
-                f._flightTime > oneHourFromNow
-            ).sort((a, b) => a._flightTime - b._flightTime);
-
-            // Combine: upcoming first, then completed (reversed to show recent), then future
-            displayFlights = [...upcoming, ...completed.reverse(), ...future].slice(0, numLimit);
-
-            // Final sort by STD for consistent display
-            displayFlights = displayFlights.sort((a, b) => a._flightTime - b._flightTime);
+            // Priority 1: Current/Upcoming window focus
+            // Priority 2: Others sorted by time proximity
+            displayFlights = validFlights
+                .sort((a, b) => {
+                    // Sort primarily by closeness to NOW, but keep chronological feel
+                    return Math.abs(a._timeDiff) - Math.abs(b._timeDiff);
+                })
+                .slice(0, numLimit)
+                .sort((a, b) => a._flightTime - b._flightTime);
         }
 
         if (displayFlights.length > 0) {
@@ -352,20 +386,21 @@ async function loadFlights() {
                 const arr = flight.arrival || '';
                 return `
                 <tr>
-                    <td class="cell-date">${formatShortDate(flight.flight_date)}</td>
+                    <td class="cell-date">${formatShortDate(flight.local_flight_date || flight.flight_date)}</td>
+
                     <td class="cell-flt">${flight.flight_number || ''}</td>
                     <td class="cell-reg">${flight.aircraft_reg || '-'}</td>
                     <td class="cell-ac">${flight.aircraft_type || '-'}</td>
                     <td class="cell-dep">${dep}</td>
                     <td class="cell-arr">${arr}</td>
-                    <td class="cell-time">${convertToLocalTime(flight.std, dep)}</td>
-                    <td class="cell-time">${convertToLocalTime(flight.sta, arr)}</td>
-                    <td class="cell-time">${convertToLocalTime(flight.etd, dep)}</td>
-                    <td class="cell-time">${convertToLocalTime(flight.eta, arr)}</td>
-                    <td class="cell-time">${convertToLocalTime(flight.tkof, dep)}</td>
-                    <td class="cell-time">${convertToLocalTime(flight.tdwn, arr)}</td>
-                    <td class="cell-time">${convertToLocalTime(flight.atd, dep)}</td>
-                    <td class="cell-time">${convertToLocalTime(flight.ata, arr)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.std, dep, flight)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.sta, arr, flight)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.etd, dep, flight)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.eta, arr, flight)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.atd, dep, flight)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.tkof, dep, flight)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.tdwn, arr, flight)}</td>
+                    <td class="cell-time">${convertToLocalTime(flight.ata, arr, flight)}</td>
                 </tr>
             `}).join('');
         } else {
@@ -528,6 +563,54 @@ async function handleUpload() {
 // Main Functions
 // =====================================================
 
+async function loadDataWindow() {
+    try {
+        const data = await apiCall('/api/data-window');
+        state.dataWindow = data;
+
+        // Constrain date picker
+        const dateInput = document.getElementById('filter-date');
+        if (dateInput && data.min_date) dateInput.min = data.min_date;
+        if (dateInput && data.max_date) dateInput.max = data.max_date;
+
+        updateDateNavButtons();
+        console.log('Data window loaded:', data);
+    } catch (error) {
+        console.warn('Could not load data window:', error);
+    }
+}
+
+function navigateDate(offset) {
+    const current = new Date(state.selectedDate);
+    current.setDate(current.getDate() + offset);
+    const newDate = current.toISOString().split('T')[0];
+
+    // Enforce window boundaries
+    if (state.dataWindow.min_date && newDate < state.dataWindow.min_date) return;
+    if (state.dataWindow.max_date && newDate > state.dataWindow.max_date) return;
+
+    state.selectedDate = newDate;
+    document.getElementById('filter-date').value = newDate;
+    updateDateNavButtons();
+    refreshAll();
+}
+
+function updateDateNavButtons() {
+    const prevBtn = document.getElementById('date-prev-btn');
+    const nextBtn = document.getElementById('date-next-btn');
+    const todayBtn = document.getElementById('date-today-btn');
+
+    if (prevBtn && state.dataWindow.min_date) {
+        prevBtn.disabled = (state.selectedDate <= state.dataWindow.min_date);
+    }
+    if (nextBtn && state.dataWindow.max_date) {
+        nextBtn.disabled = (state.selectedDate >= state.dataWindow.max_date);
+    }
+    if (todayBtn && state.dataWindow.today) {
+        todayBtn.style.display = (state.selectedDate === state.dataWindow.today) ? 'none' : '';
+    }
+}
+
 async function refreshAll() {
     if (state.isLoading) return;
 
@@ -536,7 +619,9 @@ async function refreshAll() {
     try {
         await Promise.all([
             loadDashboardSummary(),
-            loadFlights()
+            loadFlights(),
+            loadFTLSummary(),
+            loadStandbyData()
         ]);
     } catch (error) {
         console.error('Refresh failed:', error);
@@ -550,18 +635,29 @@ function initializeDashboard() {
     const dateInput = document.getElementById('filter-date');
     dateInput.value = state.selectedDate;
 
-    // Event listeners
+    // Date picker change
     dateInput.addEventListener('change', (e) => {
         state.selectedDate = e.target.value;
+        updateDateNavButtons();
         refreshAll();
+    });
+
+    // Date navigation buttons
+    document.getElementById('date-prev-btn').addEventListener('click', () => navigateDate(-1));
+    document.getElementById('date-next-btn').addEventListener('click', () => navigateDate(1));
+    document.getElementById('date-today-btn').addEventListener('click', () => {
+        if (state.dataWindow.today) {
+            state.selectedDate = state.dataWindow.today;
+            dateInput.value = state.dataWindow.today;
+            updateDateNavButtons();
+            refreshAll();
+        }
     });
 
     document.getElementById('refresh-btn').addEventListener('click', refreshAll);
 
     document.getElementById('btn-aims').addEventListener('click', () => setDataSource('AIMS'));
     document.getElementById('btn-csv').addEventListener('click', () => setDataSource('CSV'));
-
-
 
     document.getElementById('aircraft-filter').addEventListener('change', (e) => {
         state.aircraftFilter = e.target.value;
@@ -576,16 +672,18 @@ function initializeDashboard() {
     });
 
     // Focus Mode listener
-    document.getElementById('focus-mode-btn').addEventListener('click', (e) => {
-        const btn = e.currentTarget;
-        const section = document.getElementById('charts-section');
-
-        btn.classList.toggle('active');
-        section.classList.toggle('hidden');
-
-        // Trigger resize for tables if needed
-        window.dispatchEvent(new Event('resize'));
-    });
+    const focusModeBtn = document.getElementById('focus-mode-btn');
+    if (focusModeBtn) {
+        focusModeBtn.addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            const section = document.getElementById('charts-section');
+            if (section) {
+                btn.classList.toggle('active');
+                section.classList.toggle('hidden');
+                window.dispatchEvent(new Event('resize'));
+            }
+        });
+    }
 
     // Upload modal
     const uploadZone = document.getElementById('upload-zone');
@@ -611,14 +709,14 @@ function initializeDashboard() {
     document.getElementById('cancel-upload').addEventListener('click', closeUploadModal);
     document.getElementById('submit-upload').addEventListener('click', handleUpload);
 
-    // Initial load
-    initCharts(); // Initialize charts first
-    refreshAll();
+    // Initial load: fetch data window first, then all data
+    initCharts();
+    loadDataWindow().then(() => refreshAll());
 
     // Auto-refresh
     setInterval(refreshAll, REFRESH_INTERVAL);
 
-    console.log('Dashboard initialized');
+    console.log('Dashboard initialized with 7-day data window');
 }
 
 // Chart logic removed as requested (Departure Slots Chart)
@@ -669,6 +767,11 @@ async function loadAircraftData() {
         }
 
         // Filter by selected type
+        // Populate ac-type-filter dropdown dynamically
+        const modalTypes = new Set();
+        data.aircraft.forEach(ac => { if (ac.type) modalTypes.add(ac.type.trim()); });
+        populateAircraftTypeDropdown('ac-type-filter', modalTypes);
+
         let filteredAircraft = data.aircraft;
         if (selectedType) {
             filteredAircraft = data.aircraft.filter(ac => {
@@ -734,4 +837,122 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeFilter) {
         typeFilter.addEventListener('change', loadAircraftData);
     }
+
+    // === Completed Flights Modal Event Listeners ===
+    const completedCard = document.getElementById('flights-completed-card');
+    if (completedCard) {
+        completedCard.addEventListener('click', openCompletedFlightsModal);
+    }
+
+    const closeCompletedBtn = document.getElementById('close-completed-modal');
+    if (closeCompletedBtn) {
+        closeCompletedBtn.addEventListener('click', closeCompletedFlightsModal);
+    }
+
+    const completedModal = document.getElementById('completed-flights-modal');
+    if (completedModal) {
+        completedModal.addEventListener('click', (e) => {
+            if (e.target === completedModal) {
+                closeCompletedFlightsModal();
+            }
+        });
+    }
 });
+
+// =====================================================
+// Dynamic Aircraft Type Dropdown Population
+// =====================================================
+
+function populateAircraftTypeDropdown(selectId, types) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    const currentValue = select.value;
+    // Keep the first "All" option, remove the rest
+    while (select.options.length > 1) {
+        select.remove(1);
+    }
+    // Sort types alphabetically
+    const sorted = [...types].sort();
+    sorted.forEach(type => {
+        const opt = document.createElement('option');
+        opt.value = type;
+        opt.textContent = type;
+        select.appendChild(opt);
+    });
+    // Restore selection if still valid
+    if (currentValue && sorted.includes(currentValue)) {
+        select.value = currentValue;
+    }
+}
+
+// =====================================================
+// Completed Flights Modal Functions
+// =====================================================
+
+function openCompletedFlightsModal() {
+    const modal = document.getElementById('completed-flights-modal');
+    if (modal) {
+        modal.style.display = 'flex';
+        loadCompletedFlightsData();
+    }
+}
+
+function closeCompletedFlightsModal() {
+    const modal = document.getElementById('completed-flights-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+async function loadCompletedFlightsData() {
+    const tbody = document.getElementById('completed-flights-tbody');
+    const totalSpan = document.getElementById('completed-flights-total');
+    const summarySpan = document.getElementById('completed-flights-summary');
+
+    try {
+        const data = await apiCall(`/api/flights/completed?date=${state.selectedDate}`);
+        const flights = data.completed_flights || [];
+
+        if (summarySpan) {
+            summarySpan.textContent = `${data.total_completed} / ${data.total_flights} flights completed (${data.date})`;
+        }
+
+        if (flights.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="10" style="text-align: center;">No completed flights</td></tr>';
+            totalSpan.textContent = 'Total: 0 completed';
+            return;
+        }
+
+        const methodBadge = (method) => {
+            const colors = {
+                'ATA': 'success',
+                'STATUS+ATD': 'success',
+                'ATD+Buffer': 'info',
+                'STA+30': 'warning',
+                'PAST_DATE': 'secondary'
+            };
+            return `<span class="badge badge-${colors[method] || 'secondary'}">${method}</span>`;
+        };
+
+        tbody.innerHTML = flights.map((f, i) => `
+            <tr>
+                <td>${i + 1}</td>
+                <td><strong>${f.flight_number}</strong></td>
+                <td>${f.aircraft_reg}</td>
+                <td>${f.aircraft_type}</td>
+                <td>${f.route}</td>
+                <td>${f.std || '--:--'}</td>
+                <td>${f.sta || '--:--'}</td>
+                <td>${f.atd || '--:--'}</td>
+                <td>${f.ata || '--:--'}</td>
+                <td>${methodBadge(f.completion_source)}</td>
+            </tr>
+        `).join('');
+
+        totalSpan.textContent = `Total: ${flights.length} completed`;
+
+    } catch (error) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: #ff6b6b;">Failed to load data</td></tr>';
+    }
+}
+

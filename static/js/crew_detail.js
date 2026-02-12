@@ -87,7 +87,9 @@ function initEventListeners() {
 
 async function loadCrewData() {
     try {
-        const response = await fetch(`/api/crew/${state.crewId}`);
+        const response = await fetch(`/api/crew/${state.crewId}`, {
+            headers: { 'X-API-Key': window.API_KEY || '' }
+        });
         const result = await response.json();
 
         if (result.success) {
@@ -120,7 +122,9 @@ async function loadRosterData() {
     });
 
     try {
-        const response = await fetch(`/api/crew/${state.crewId}/roster?from=${fromDate}&to=${toDate}`);
+        const response = await fetch(`/api/crew/${state.crewId}/roster?from=${fromDate}&to=${toDate}`, {
+            headers: { 'X-API-Key': window.API_KEY || '' }
+        });
         const result = await response.json();
 
         if (result.success) {
@@ -135,7 +139,9 @@ async function loadRosterData() {
 
 async function loadFlightHours() {
     try {
-        const response = await fetch(`/api/crew/${state.crewId}/flight-hours`);
+        const response = await fetch(`/api/crew/${state.crewId}/flight-hours`, {
+            headers: { 'X-API-Key': window.API_KEY || '' }
+        });
         const result = await response.json();
 
         if (result.success && result.data) {
@@ -149,7 +155,9 @@ async function loadFlightHours() {
 
 async function loadRecentFlights() {
     try {
-        const response = await fetch(`/api/crew/${state.crewId}/flights?limit=10`);
+        const response = await fetch(`/api/crew/${state.crewId}/flights?limit=10`, {
+            headers: { 'X-API-Key': window.API_KEY || '' }
+        });
         const result = await response.json();
 
         if (result.success) {
@@ -163,7 +171,9 @@ async function loadRecentFlights() {
 
 async function loadQualifications() {
     try {
-        const response = await fetch(`/api/crew/${state.crewId}/qualifications`);
+        const response = await fetch(`/api/crew/${state.crewId}/qualifications`, {
+            headers: { 'X-API-Key': window.API_KEY || '' }
+        });
         const result = await response.json();
 
         if (result.success) {

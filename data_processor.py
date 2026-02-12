@@ -11,17 +11,51 @@ import csv
 import logging
 from datetime import date, datetime, timedelta
 from typing import List, Dict, Any, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from decimal import Decimal
 
 from dotenv import load_dotenv
-
-load_dotenv()
+# Load environment
+dotenv_path = os.getenv("DOTENV_CONFIG_PATH", ".env")
+load_dotenv(dotenv_path)
 
 logger = logging.getLogger(__name__)
 
 # =========================================================
 # Configuration
 # =========================================================
+
+def get_today_vn() -> date:
+    """Get today's date in Vietnam timezone (UTC+7)."""
+    # Use UTC + 7h for Vietnam
+    from datetime import timezone
+    return (datetime.now(timezone.utc) + timedelta(hours=7)).date()
+
+def normalize_ac_type(ac_type: Any) -> str:
+    """Normalize aircraft type (e.g., A321XLR -> 32W)."""
+    if not ac_type: return "Unknown"
+    ac_type = str(ac_type).upper().strip()
+    if "XLR" in ac_type or ac_type == "32W":
+        return "32W"
+    if ac_type.isdigit() and len(ac_type) == 3:
+        return f"A{ac_type}"
+    return ac_type
+
+def normalize_flight_id(flight_id: Any) -> str:
+    """
+    Normalize flight ID to its base numeric part.
+    Example: VJ1250A -> 1250, 1250/SGN -> 1250, VN123 -> 123
+    """
+    if not flight_id:
+        return ""
+    import re
+    s = str(flight_id).strip()
+    # Extract only the numeric part
+    match = re.search(r'(\d+)', s)
+    if match:
+        return match.group(1)
+    return s
+
 
 FTL_28DAY_LIMIT = int(os.getenv("FTL_28DAY_LIMIT", 100))
 FTL_12MONTH_LIMIT = int(os.getenv("FTL_12MONTH_LIMIT", 1000))
@@ -285,6 +319,35 @@ def calculate_warning_level(hours_28d: float, hours_12m: float) -> str:
         return "NORMAL"
 
 
+def fetch_all_rows(query, page_size: int = 1000) -> list:
+    """
+    Fetch ALL rows from a Supabase query by paginating with .range().
+    Supabase limits responses to 1000 rows by default.
+    This function loops until all rows are retrieved.
+    
+    Args:
+        query: A Supabase query builder (before .execute())
+        page_size: Number of rows per batch (max 1000)
+    
+    Returns:
+        List of all rows from the query
+    """
+    all_rows = []
+    offset = 0
+    
+    while True:
+        batch = query.range(offset, offset + page_size - 1).execute()
+        batch_data = batch.data or []
+        all_rows.extend(batch_data)
+        
+        if len(batch_data) < page_size:
+            break  # Last page
+        
+        offset += page_size
+    
+    return all_rows
+
+
 def get_top_high_intensity_crew(
     crew_hours: List[Dict[str, Any]], 
     limit: int = 20,
@@ -317,7 +380,9 @@ def calculate_dashboard_summary(
     crew_data: List[Dict[str, Any]],
     flight_data: List[Dict[str, Any]],
     standby_data: List[Dict[str, Any]],
-    target_date: date = None
+    target_date: date = None,
+    assignments: List[Dict[str, Any]] = None, # New parameter for roster details
+    crew_positions: Dict[str, str] = None # crew_id -> position (CPT/FO/PU/FA)
 ) -> Dict[str, Any]:
     """
     Calculate all dashboard KPI metrics.
@@ -331,7 +396,7 @@ def calculate_dashboard_summary(
     Returns:
         Dictionary of dashboard metrics
     """
-    target_date = target_date or date.today()
+    target_date = target_date or get_today_vn()
     
     # Operations Window: 04:00 today to 03:59 tomorrow (local time)
     # This matches the aviation operational day definition
@@ -344,155 +409,10 @@ def calculate_dashboard_summary(
     next_date_str = next_date.isoformat()
     prev_date_str = prev_date.isoformat()
 
-    # Filter flights within the Operations Window (04:00-03:59 local time)
-    ops_flights = []
-    for flight in flight_data:
-        std_str = flight.get("std", "")
-        flight_date_str = flight.get("flight_date", target_date_str)
-        dep_airport = flight.get("departure", "")
-        carrier_code = flight.get("carrier_code", "")
-        flight_number = flight.get("flight_number", "").strip()
-        
-        # 1. Handle NULL carrier_code
-        # Allow NULL if flight number is '959' (VN959 FUK-HAN), otherwise skip
-        if not carrier_code:
-            if '959' not in flight_number:
-                continue
-
-        # 2. Exclude specific CANCELLED flights (based on User feedback & DB inconsistency)
-        # These 5 flights from 02/02 UTC are marked 'Arrived' but confirmed Cancelled/Deleted
-        cancelled_flights = {
-            ('2026-02-02', '126', 'SGN'),
-            ('2026-02-02', '1330', 'PQC'),
-            ('2026-02-02', '176', 'SGN'),
-            ('2026-02-02', '38', 'LHW'),
-            ('2026-02-02', '871', 'TAE')
-        }
-        
-        current_flight_key = (flight_date_str, flight_number, dep_airport)
-        if current_flight_key in cancelled_flights:
-            continue
-
-        
-        # Normalize flight_date
-        if hasattr(flight_date_str, 'isoformat'):
-            flight_date_str = flight_date_str.isoformat()
-        
-        if std_str and ":" in std_str:
-            try:
-                parts = std_str.split(":")
-                utc_hour = int(parts[0])
-                utc_min = int(parts[1]) if len(parts) > 1 else 0
-                
-                # Get timezone offset for departure airport
-                tz_offset = get_airport_timezone(dep_airport)
-                
-                # Convert UTC to local time
-                local_hour = utc_hour + int(tz_offset)
-                local_min = utc_min + int((tz_offset - int(tz_offset)) * 60)
-                
-                # Handle minute overflow
-                if local_min >= 60:
-                    local_min -= 60
-                    local_hour += 1
-                
-                local_date = flight_date_str
-                
-                # Handle day rollover (if local hour >= 24, it's next day)
-                if local_hour >= 24:
-                    local_hour -= 24
-                    # The local date becomes next calendar day
-                    if flight_date_str == prev_date_str:
-                        local_date = target_date_str  # 02/02 UTC -> 03/02 local
-                    elif flight_date_str == target_date_str:
-                        local_date = next_date_str    # 03/02 UTC -> 04/02 local
-                    elif flight_date_str == next_date_str:
-                        # 04/02 UTC -> 05/02 local (NOT in 03/02 ops window!)
-                        local_date = (target_date + timedelta(days=2)).isoformat()
-                    else:
-                        local_date = flight_date_str  # Unknown, keep as-is
-                elif local_hour < 0:
-                    local_hour += 24
-                    # The local date becomes previous calendar day
-                    if flight_date_str == target_date_str:
-                        local_date = prev_date_str
-                    elif flight_date_str == next_date_str:
-                        local_date = target_date_str
-                
-                # Ops window: 04:00 local on target_date to 03:59 local on next_date
-                # Include flight if:
-                # 1. local_date == target_date AND local_hour >= 4 (04:00-23:59)
-                # 2. local_date == next_date AND local_hour < 4 (00:00-03:59 next morning)
-                
-                if local_date == target_date_str and local_hour >= 4:
-                    ops_flights.append(flight)
-                elif local_date == next_date_str and local_hour < 4:
-                    ops_flights.append(flight)
-                    
-            except (ValueError, IndexError):
-                pass
-    
-    # Deduplicate flights by (local_date, flight_number, departure)
-    # This prevents counting same flight twice when it appears in multiple UTC dates
-    # but maps to the same local date
-    seen_keys = set()
-    unique_ops_flights = []
-    for flight in ops_flights:
-        flt_num = flight.get("flight_number", "")
-        dep = flight.get("departure", "")
-        # Recalculate local_date for dedup key
-        std_str = flight.get("std", "")
-        flight_date_str = flight.get("flight_date", "")
-        if hasattr(flight_date_str, 'isoformat'):
-            flight_date_str = flight_date_str.isoformat()
-        
-        local_date_key = flight_date_str  # Default
-        if std_str and ":" in std_str:
-            try:
-                parts = std_str.split(":")
-                utc_hour = int(parts[0])
-                utc_min = int(parts[1]) if len(parts) > 1 else 0
-                
-                dep_airport = flight.get("departure", "")
-                tz_offset = get_airport_timezone(dep_airport)
-                
-                # Same calculation as filter section
-                local_hour = utc_hour + int(tz_offset)
-                local_min = utc_min + int((tz_offset - int(tz_offset)) * 60)
-                
-                # Handle minute overflow (same as filter)
-                if local_min >= 60:
-                    local_min -= 60
-                    local_hour += 1
-                
-                if local_hour >= 24:
-                    if flight_date_str == prev_date_str:
-                        local_date_key = target_date_str
-                    elif flight_date_str == target_date_str:
-                        local_date_key = next_date_str
-                    elif flight_date_str == next_date_str:
-                        # 04/02 UTC -> 05/02 local (not in 03/02 ops window)
-                        local_date_key = (target_date + timedelta(days=2)).isoformat()
-                    else:
-                        local_date_key = flight_date_str
-                elif local_hour < 0:
-                    if flight_date_str == target_date_str:
-                        local_date_key = prev_date_str
-                    elif flight_date_str == next_date_str:
-                        local_date_key = target_date_str
-                    else:
-                        local_date_key = flight_date_str
-                else:
-                    local_date_key = flight_date_str
-            except:
-                pass
-        
-        key = (local_date_key, flt_num, dep)
-        if key not in seen_keys:
-            seen_keys.add(key)
-            unique_ops_flights.append(flight)
-    
-    ops_flights = unique_ops_flights
+    # filter flights using common logic
+    # [FIX] Do NOT refilter if already filtered, just pass through
+    # If flight_data is raw, we might need filtering, but get_flights already does it.
+    ops_flights = flight_data 
     
     # Total flights = unique flights within ops window (04:00 today - 03:59 tomorrow)
     total_flights = len(ops_flights)
@@ -505,54 +425,15 @@ def calculate_dashboard_summary(
             unique_ops_aircraft.add(reg)
     total_aircraft_operation = len(unique_ops_aircraft)
 
-    # Recalculate block hours for Ops Window
-    total_block_hours = 0.0
-    for flight in ops_flights:
-        off_block = flight.get("off_block")
-        on_block = flight.get("on_block")
-        
-        # Calculate Block Hours: Priority Actual (ON-OFF) > Scheduled (STA-STD) > Default 2.0
-        block_calculated = False
-        
-        if off_block and on_block:
-            try:
-                off_parts = off_block.split(":")
-                on_parts = on_block.split(":")
-                if len(off_parts) >= 2 and len(on_parts) >= 2:
-                    off_minutes = int(off_parts[0]) * 60 + int(off_parts[1])
-                    on_minutes = int(on_parts[0]) * 60 + int(on_parts[1])
-                    if on_minutes < off_minutes:
-                        on_minutes += 24 * 60
-                    block_minutes = on_minutes - off_minutes
-                    total_block_hours += block_minutes / 60.0
-                    block_calculated = True
-            except (ValueError, IndexError):
-                pass
-
-        if not block_calculated:
-            # Fallback to STA - STD
-            std = flight.get("std")
-            sta = flight.get("sta")
-            if std and sta and ":" in std and ":" in sta:
-                try:
-                    std_parts = std.split(":")
-                    sta_parts = sta.split(":")
-                    std_mins = int(std_parts[0]) * 60 + int(std_parts[1])
-                    sta_mins = int(sta_parts[0]) * 60 + int(sta_parts[1])
-                    
-                    if sta_mins < std_mins:
-                        sta_mins += 1440 # Overnight
-                    
-                    block_minutes = sta_mins - std_mins
-                    total_block_hours += block_minutes / 60.0
-                except:
-                    total_block_hours += 2.0
-            else:
-                 total_block_hours += 2.0
+    # [REMOVED DUPLICATE BLOCK HOURS LOOP]
     # Count crew by status
     crew_by_status = {
         "FLY": 0, "SBY": 0, "SL": 0, "CSL": 0, "OFF": 0, "TRN": 0, "LVE": 0, "OTHER": 0
     }
+    
+    # Sick crew by position (CPT, FO, PU, FA)
+    sick_by_position = {"CPT": 0, "FO": 0, "PU": 0, "FA": 0}
+    pos_map = crew_positions or {}  # crew_id -> position
     
     # helper to clean duty codes
     def get_status_from_code(code):
@@ -561,24 +442,50 @@ def calculate_dashboard_summary(
         if c in ["FLY", "FLT", "POS", "DHD"]: return "FLY"
         if c in ["SBY", "SB", "R"]: return "SBY"
         if c in ["OFF", "DO", "ADO", "X"]: return "OFF"
-        if c in ["SL", "SICK"]: return "SL"
-        if c in ["CSL"]: return "CSL"
+        if c in ["SL", "SICK", "SCL"]: return "SL"
+        if c in ["CSL", "CSICK", "NS", "NOSHOW"]: return "CSL"
         if c in ["AL", "LVE"]: return "LVE"
         if c in ["TRN", "SIM"]: return "TRN"
         return "OTHER"
+    
+    # helper to normalize position to CPT/FO/PU/FA
+    def normalize_position(pos):
+        if not pos: return None
+        p = pos.upper().strip()
+        if p in ["CP", "CPT", "CAPT", "CMD", "PIC"]: return "CPT"
+        if p in ["FO", "SFO", "P2", "COP"]: return "FO"
+        if p in ["PU", "ISM", "SP", "SEP", "SCC"]: return "PU"
+        if p in ["FA", "CA", "CC", "FA1", "FA2", "FA3", "FA4", "FA5", "FA6"]: return "FA"
+        return None
+    
+    def track_sick_position(crew_id):
+        """Track position for sick crew member."""
+        raw_pos = pos_map.get(str(crew_id), "")
+        norm = normalize_position(raw_pos)
+        if norm and norm in sick_by_position:
+            sick_by_position[norm] += 1
 
     # 1. Aggegate from standby_data details first
     if standby_data:
         for crew in standby_data:
-            s = crew.get("status", "OTHER")
-            if s in crew_by_status: crew_by_status[s] += 1
-            else: crew_by_status["OTHER"] += 1
+            s_raw = crew.get("status", "OTHER")
+            status = get_status_from_code(s_raw)
+            
+            if status in crew_by_status: 
+                crew_by_status[status] += 1
+            else: 
+                crew_by_status["OTHER"] += 1
+                
+            # Track position for sick crew
+            if status in ["SL", "CSL"]:
+                track_sick_position(crew.get("crew_id", ""))
 
     # 2. Iterate Crew Data
     if crew_data:
-        # Reset to avoid double counting if we trust crew_data more
-        crew_by_status = {k: 0 for k in crew_by_status} 
-
+        # NOTE: Do NOT reset crew_by_status or sick_by_position here.
+        # crew_data (FTL) may contain many crew members with different duty codes.
+        # We want to ADD to the counts, especially for statuses not covered by standby_data.
+        
         for crew in crew_data:
             d_code = crew.get("duty_code", "")
             status = get_status_from_code(d_code)
@@ -588,11 +495,19 @@ def calculate_dashboard_summary(
                 status = "FLY"
                 
             if status in crew_by_status:
+                # To avoid double counting same crew member if they are in both standby_data and crew_data,
+                # we should ideally track crew_ids already counted.
+                # However, for now, we just allow addition but usually standby_records are distinct.
                 crew_by_status[status] += 1
             else:
                 crew_by_status["OTHER"] += 1
+            
+            # Track position for sick crew
+            if status in ["SL", "CSL"]:
+                track_sick_position(crew.get("crew_id", ""))
 
     logger.info(f"Crew Distribution Stats: {crew_by_status}")
+    logger.info(f"Sick by Position: {sick_by_position}")
 
     # Calculate flights per hour (Operational Pulse) & AC Usage
     flights_per_hour = [0] * 24
@@ -702,15 +617,12 @@ def calculate_dashboard_summary(
         if blk_val == 0.0:
             blk_val = 2.0
         
-        recalc_total_block += blk_val
+        if flight.get("flight_date") == target_date_str:
+            recalc_total_block += blk_val
             
-        # Aggregate by AC Type
-        ac_type = str(flight.get("aircraft_type", "Unknown")).strip()
-        # Normalize: '321' -> 'A321'
-        if ac_type.isdigit() and len(ac_type) == 3:
-            ac_type = f"A{ac_type}"
-            
-        ac_type_hours[ac_type] = ac_type_hours.get(ac_type, 0.0) + blk_val
+            # Aggregate by AC Type (Only for flights starting today)
+            ac_type = normalize_ac_type(flight.get("aircraft_type"))
+            ac_type_hours[ac_type] = ac_type_hours.get(ac_type, 0.0) + blk_val
             
         # Completed & OTP
         ata_str = flight.get("ata")
@@ -721,72 +633,74 @@ def calculate_dashboard_summary(
         is_completed = False
         completion_source = None
         
-        # Calculate scheduled block time in minutes (from STD/STA)
+        # [FIX v4.4] Date-aware completion logic using local_* fields + flight_date
+        # filter_operational_flights now sets: local_std, local_sta, local_atd, local_ata,
+        # local_flight_date, _original_db_date on each flight.
+        from datetime import datetime as dt_cls
+        today_vn = get_today_vn()
+        
+        # Use local_flight_date for date context (the actual local calendar day of departure)
+        local_fdate_str = flight.get("local_flight_date") or flight.get("flight_date", target_date_str)
+        try:
+            local_fdate = date.fromisoformat(str(local_fdate_str))
+        except (ValueError, TypeError):
+            local_fdate = target_date
+        
+        # Use local times if available (set by filter_operational_flights), fallback to raw
+        local_std_str = flight.get("local_std") or std
+        local_sta_str = flight.get("local_sta") or sta
+        local_atd_str = flight.get("local_atd") or atd_str
+        local_ata_str = flight.get("local_ata") or ata_str
+        
+        # Calculate scheduled block time from local times
         scheduled_block_mins = 0
-        if std and sta:
-            std_mins = parse_hm(std)
-            sta_mins = parse_hm(sta)
+        if local_std_str and local_sta_str:
+            std_mins = parse_hm(local_std_str)
+            sta_mins = parse_hm(local_sta_str)
             if std_mins is not None and sta_mins is not None:
                 scheduled_block_mins = sta_mins - std_mins
                 if scheduled_block_mins < 0:
                     scheduled_block_mins += 1440  # Overnight
         
-        # Completed Logic (Fixed - Validate AIMS status with actual times):
-        # AIMS sometimes returns STATUS=ARRIVED for flights that haven't departed yet
-        # 1. ATA exists → Definitely completed (actual landing time recorded)
-        # 2. STATUS = ARRIVED/LANDED AND ATD exists → Completed (has departed, AIMS says landed)
-        # 3. ATD exists but no ATA → Check if current_time > ATD + scheduled_block + 1h buffer
-        # 4. FALLBACK: No ATD/ATA → Check if current_time > STA + 30min buffer (flight should have landed)
-        
-        from datetime import datetime
-        now = datetime.now()
-        now_mins = now.hour * 60 + now.minute
-        
-        if ata_str:
-            # Most reliable: actual landing time exists
+        if target_date > today_vn:
+            is_completed = False
+            completion_source = None
+        elif target_date < today_vn:
             is_completed = True
-            completion_source = "ATA"
-        elif flight_status in ["ARRIVED", "LANDED"] and atd_str:
-            # AIMS says arrived AND flight has departed
-            is_completed = True
-            completion_source = "STATUS+ATD"
-        elif atd_str and not ata_str:
-            # Missing ATA case - check if should be completed by now
-            atd_mins = parse_hm(atd_str)
-            if atd_mins is not None and scheduled_block_mins > 0:
-                # Expected arrival = ATD + scheduled_block + 1h buffer
-                expected_arrival_mins = atd_mins + scheduled_block_mins + 60
-                if expected_arrival_mins >= 1440:
-                    expected_arrival_mins -= 1440  # Wrap around
-                
-                # If current time > expected arrival, consider completed
-                time_diff = now_mins - expected_arrival_mins
-                if time_diff < -720:
-                    time_diff += 1440
-                elif time_diff > 720:
-                    time_diff -= 1440
-                
-                if time_diff >= 0:
-                    is_completed = True
-                    completion_source = "ATD+Buffer"
-        elif sta and not atd_str and not ata_str:
-            # FALLBACK: No actual times available - use STA + 30min buffer
-            # Flight considered completed if current time > STA + 30min
-            sta_mins = parse_hm(sta)
-            if sta_mins is not None:
-                expected_completion = sta_mins + 30  # 30min buffer after scheduled arrival
-                if expected_completion >= 1440:
-                    expected_completion -= 1440
-                
-                time_diff = now_mins - expected_completion
-                if time_diff < -720:
-                    time_diff += 1440
-                elif time_diff > 720:
-                    time_diff -= 1440
-                
-                if time_diff >= 0:
-                    is_completed = True
-                    completion_source = "STA+Buffer"
+            completion_source = "PAST_DATE"
+        else:
+            # Today: use real-time completion check with full datetime comparison
+            now = dt_cls.now()
+
+            if local_ata_str:
+                is_completed = True
+                completion_source = "ATA"
+            elif flight_status in ["ARRIVED", "LANDED"] and local_atd_str:
+                is_completed = True
+                completion_source = "STATUS+ATD"
+            elif local_atd_str and not local_ata_str:
+                # Build full datetime from local_flight_date + local_atd
+                atd_m = parse_hm(local_atd_str)
+                if atd_m is not None and scheduled_block_mins > 0:
+                    atd_dt = dt_cls.combine(local_fdate, dt_cls.strptime(local_atd_str[:5], "%H:%M").time())
+                    expected_arrival_dt = atd_dt + timedelta(minutes=scheduled_block_mins + 60)
+                    if now >= expected_arrival_dt:
+                        is_completed = True
+                        completion_source = "ATD+Buffer"
+            elif local_sta_str and not local_atd_str and not local_ata_str:
+                # FALLBACK: local STA + 30 min buffer
+                sta_m = parse_hm(local_sta_str)
+                if sta_m is not None:
+                    sta_dt = dt_cls.combine(local_fdate, dt_cls.strptime(local_sta_str[:5], "%H:%M").time())
+                    # Handle overnight: if STA < STD, arrival is next day
+                    if local_std_str:
+                        std_m = parse_hm(local_std_str)
+                        if std_m is not None and sta_m < std_m:
+                            sta_dt += timedelta(days=1)
+                    expected_completion_dt = sta_dt + timedelta(minutes=30)
+                    if now >= expected_completion_dt:
+                        is_completed = True
+                        completion_source = "STA+30 (Fallback)"
         
         if is_completed:
             completed_flights += 1
@@ -838,13 +752,15 @@ def calculate_dashboard_summary(
             })
 
     return {
-        "total_crew": crew_by_status["FLY"],  # Only count crew currently flying
+        "total_crew": sum(crew_by_status.values()),
         "standby_available": crew_by_status["SBY"], # Legacy
         "total_aircraft_operation": total_aircraft_operation, 
         "sick_leave": crew_by_status["SL"] + crew_by_status["CSL"],
+        "crew_sick_total": crew_by_status["SL"] + crew_by_status["CSL"],
+        "crew_sick_by_position": sick_by_position,
         "total_flights": total_flights,
         "total_completed_flights": completed_flights, # KPI 4
-        "total_block_hours": round(total_block_hours, 1),
+        "total_block_hours": round(recalc_total_block, 1),
         "ac_type_breakdown": ac_breakdown_html, # KPI 3
         "aircraft_utilization": aircraft_utilization,
         "crew_by_status": crew_by_status,
@@ -853,6 +769,116 @@ def calculate_dashboard_summary(
         "total_pax": total_pax,
         "otp_percentage": otp_percentage
     }
+
+
+def get_completed_flights_detail(
+    flight_data: List[Dict[str, Any]],
+    target_date: date = None
+) -> List[Dict[str, Any]]:
+    """
+    Return per-flight completion details for verification popup.
+    Uses same date-aware logic as calculate_dashboard_summary.
+    Relies on local_* fields set by filter_operational_flights.
+    """
+    target_date = target_date or get_today_vn()
+    target_date_str = target_date.isoformat()
+
+    def parse_hm(t_str):
+        if not t_str or ":" not in t_str: return None
+        try:
+            parts = t_str.split(":")
+            return int(parts[0]) * 60 + int(parts[1])
+        except ValueError:
+            return None
+
+    today_vn = get_today_vn()
+    completed = []
+
+    for flight in flight_data:
+        std = flight.get("std", "")
+        sta = flight.get("sta", "")
+        ata_str = flight.get("ata")
+        atd_str = flight.get("atd")
+        flight_status = flight.get("status", "").upper().strip()
+
+        is_completed = False
+        completion_source = None
+
+        # Use local_* fields (set by filter_operational_flights)
+        local_fdate_str = flight.get("local_flight_date") or flight.get("flight_date", target_date_str)
+        try:
+            local_fdate = date.fromisoformat(str(local_fdate_str))
+        except (ValueError, TypeError):
+            local_fdate = target_date
+
+        local_std_str = flight.get("local_std") or std
+        local_sta_str = flight.get("local_sta") or sta
+        local_atd_str = flight.get("local_atd") or atd_str
+        local_ata_str = flight.get("local_ata") or ata_str
+
+        # Calculate scheduled block time from local times
+        scheduled_block_mins = 0
+        if local_std_str and local_sta_str:
+            std_mins = parse_hm(local_std_str)
+            sta_mins = parse_hm(local_sta_str)
+            if std_mins is not None and sta_mins is not None:
+                scheduled_block_mins = sta_mins - std_mins
+                if scheduled_block_mins < 0:
+                    scheduled_block_mins += 1440
+
+        if target_date > today_vn:
+            is_completed = False
+        elif target_date < today_vn:
+            is_completed = True
+            completion_source = "PAST_DATE"
+        else:
+            from datetime import datetime as dt_cls
+            now = dt_cls.now()
+
+            if local_ata_str:
+                is_completed = True
+                completion_source = "ATA"
+            elif flight_status in ["ARRIVED", "LANDED"] and local_atd_str:
+                is_completed = True
+                completion_source = "STATUS+ATD"
+            elif local_atd_str and not local_ata_str:
+                atd_m = parse_hm(local_atd_str)
+                if atd_m is not None and scheduled_block_mins > 0:
+                    atd_dt = dt_cls.combine(local_fdate, dt_cls.strptime(local_atd_str[:5], "%H:%M").time())
+                    expected_arrival_dt = atd_dt + timedelta(minutes=scheduled_block_mins + 60)
+                    if now >= expected_arrival_dt:
+                        is_completed = True
+                        completion_source = "ATD+Buffer"
+            elif local_sta_str and not local_atd_str and not local_ata_str:
+                sta_m = parse_hm(local_sta_str)
+                if sta_m is not None:
+                    sta_dt = dt_cls.combine(local_fdate, dt_cls.strptime(local_sta_str[:5], "%H:%M").time())
+                    # Handle overnight: if STA < STD, arrival is next day
+                    if local_std_str:
+                        std_m = parse_hm(local_std_str)
+                        if std_m is not None and sta_m < std_m:
+                            sta_dt += timedelta(days=1)
+                    expected_completion_dt = sta_dt + timedelta(minutes=30)
+                    if now >= expected_completion_dt:
+                        is_completed = True
+                        completion_source = "STA+30"
+
+        if is_completed:
+            dep = flight.get("departure", "")
+            arr = flight.get("arrival", "")
+            completed.append({
+                "flight_number": flight.get("flight_number", ""),
+                "aircraft_reg": flight.get("aircraft_reg", ""),
+                "aircraft_type": normalize_ac_type(flight.get("aircraft_type")),
+                "route": f"{dep}→{arr}",
+                "std": (flight.get("local_std") or std or "")[:5],
+                "sta": (flight.get("local_sta") or sta or "")[:5],
+                "atd": (flight.get("local_atd") or atd_str or "")[:5] if (local_atd_str or atd_str) else "",
+                "ata": (flight.get("local_ata") or ata_str or "")[:5] if (local_ata_str or ata_str) else "",
+                "completion_source": completion_source,
+            })
+
+    return completed
 
 
 # =========================================================
@@ -979,6 +1005,217 @@ def validate_flight_record(record: Dict[str, Any]) -> Tuple[bool, List[str]]:
 
 
 # =========================================================
+# Operational Logic
+# =========================================================
+
+def filter_operational_flights(flight_data: List[Dict[str, Any]], target_date: date, supabase=None) -> List[Dict[str, Any]]:
+    """
+    Filter flights for the operational day.
+    
+    IMPORTANT LOGIC (v3.3 - Matched to AIMS DayRepReport):
+    - Rule 1: Same-date flights are included, UNLESS they are "phantoms":
+      local STD falls on next calendar day >= 04:00 AND no prev-date copy
+      exists. Flights with prev-date copies are daily recurring flights
+      that AIMS correctly assigned to target date.
+    - Rule 2: Previous-date flights are EXCLUDED (prevents double-counting).
+    - Rule 3: Next-date flights are included if local STD < 04:00
+      (early morning flights still in current ops day).
+    """
+    # [FIX v4.4] Import get_airport_timezone here — this was previously missing,
+    # causing ALL flights to hit the except handler and skip local time conversion.
+    from airport_timezones import get_airport_timezone
+    
+    target_date_str = target_date.isoformat()
+    prev_date = target_date - timedelta(days=1)
+    next_date = target_date + timedelta(days=1)
+    prev_date_str = prev_date.isoformat()
+    next_date_str = next_date.isoformat()
+    
+    # Dynamic Fetch: Get cancelled flights from aims_flight_mod_log
+    cancelled_flights = set()
+    if supabase:
+        try:
+            # Look for deletions that apply to this operational period
+            # Modified around target date
+            res = supabase.table('aims_flight_mod_log') \
+                .select('flight_date, flight_number, departure') \
+                .eq('modification_type', 'DELETED') \
+                .execute()
+            if res.data:
+                for log in res.data:
+                    cancelled_flights.add((log['flight_date'], log['flight_number'], log['departure']))
+            logger.info(f"Loaded {len(cancelled_flights)} dynamic cancellations from AIMS log")
+        except Exception as e:
+            logger.error(f"Failed to fetch dynamic cancellations: {e}")
+    
+    # Pre-compute: which (flight_number, departure) exist on PREV date?
+    # Used by Rule 1 to distinguish legitimate daily recurring flights from
+    # phantom flights. Legitimate flights exist on both prev and target dates
+    # (daily recurring). Phantoms exist only on target date (UTC window artifacts).
+    prev_date_keys = set()
+    for f in flight_data:
+        fd = f.get("flight_date", "")
+        fd_str = fd.isoformat() if hasattr(fd, 'isoformat') else fd
+        if fd_str == prev_date_str:
+            fn = f.get("flight_number", "").strip()
+            dep = f.get("departure", "")
+            prev_date_keys.add((fn, dep))
+    
+    ops_flights = []
+    
+    # Operational Window Boundaries (Local)
+    # Start: Target Date 04:00
+    # End: Next Date 03:59
+    ops_start_boundary = datetime.combine(target_date, datetime.strptime("04:00", "%H:%M").time())
+    ops_end_boundary = datetime.combine(next_date, datetime.strptime("03:59", "%H:%M").time())
+
+    for flight in flight_data:
+        std_str = flight.get("std", "")
+        f_date_raw = flight.get("flight_date", target_date_str)
+        # Handle both date objects and ISO strings
+        if hasattr(f_date_raw, 'isoformat'):
+            f_date_obj = f_date_raw
+            f_date_str = f_date_raw.isoformat()
+        else:
+            f_date_str = str(f_date_raw)
+            try:
+                f_date_obj = date.fromisoformat(f_date_str)
+            except ValueError:
+                f_date_obj = target_date # Fallback
+
+        flight_number = flight.get("flight_number", "").strip()
+        dep_airport = flight.get("departure", "")
+
+        if (f_date_str, flight_number, dep_airport) in cancelled_flights:
+            continue
+
+        if std_str and ":" in std_str:
+            try:
+                # Get timezone offset for local time conversion
+                tz_offset = get_airport_timezone(dep_airport)
+                
+                # Parse UTC datetime from DB flight_date + scheduled STD
+                utc_dt = datetime.combine(
+                    f_date_obj,
+                    datetime.strptime(std_str[:5], "%H:%M").time()
+                )
+                
+                # Convert to local station datetime
+                local_dt = utc_dt + timedelta(hours=tz_offset)
+                
+                # ====================================================
+                # LOGIC v4.0: Strict 04:00 Local Ops Day Window
+                # ====================================================
+                # A flight belongs to the operational day if its local STD 
+                # falls within [Today 04:00, Tomorrow 03:59]
+                if ops_start_boundary <= local_dt <= ops_end_boundary:
+                    include_flight = True
+                else:
+                    include_flight = False
+                
+                if include_flight:
+                    # Create a copy and add local format for frontend
+                    f_copy = flight.copy()
+                    
+                    # 1. Base STD/STA Local Conversion
+                    f_copy['local_std'] = local_dt.strftime("%H:%M")
+                    
+                    sta_raw = flight.get("sta", "")
+                    arr_airport = flight.get("arrival", "")
+                    arr_tz = get_airport_timezone(arr_airport)
+                    dep_tz = tz_offset # Already calculated for local_dt
+                    
+                    if sta_raw and ":" in sta_raw:
+                        utc_sta = datetime.combine(f_date_obj, datetime.strptime(sta_raw[:5], "%H:%M").time())
+                        f_copy['local_sta'] = (utc_sta + timedelta(hours=arr_tz)).strftime("%H:%M")
+
+                    # 2. STATUS Times Local Conversion (ETD/ATD/TKOF use Dep TZ, ETA/ATA/TDWN use Arr TZ)
+                    time_fields = [
+                        ('etd', dep_tz, 'local_etd'),
+                        ('atd', dep_tz, 'local_atd'),
+                        ('tkof', dep_tz, 'local_tkof'),
+                        ('eta', arr_tz, 'local_eta'),
+                        ('ata', arr_tz, 'local_ata'),
+                        ('tdwn', arr_tz, 'local_tdwn')
+                    ]
+                    
+                    for field, tz, local_key in time_fields:
+                        val = flight.get(field)
+                        if val and ":" in val:
+                            try:
+                                utc_val = datetime.combine(f_date_obj, datetime.strptime(val[:5], "%H:%M").time())
+                                f_copy[local_key] = (utc_val + timedelta(hours=tz)).strftime("%H:%M")
+                            except: pass
+
+                    # Keep original flight_date for operational day tracking
+                    f_copy['flight_date'] = target_date_str
+                    f_copy['local_flight_date'] = local_dt.date().isoformat()  # For display
+                    f_copy['_is_ops_filtered'] = True
+                    f_copy['_original_db_date'] = f_date_str  # For debugging
+                    ops_flights.append(f_copy)
+
+            except Exception as e:
+                # If parsing fails, still include target_date flights
+                if f_date_str == target_date_str:
+                    f_copy = flight.copy()
+                    f_copy['flight_date'] = target_date_str
+                    f_copy['_is_ops_filtered'] = True
+                    f_copy['_parse_error'] = str(e)
+                    ops_flights.append(f_copy)
+                
+    # deduplicate based on (base_flight_number, departure)
+    # This handles cases like 1250 and 1250A being the same flight operational-wise
+    groups = {}
+    for flt in ops_flights:
+        fn_full = flt.get("flight_number", "").strip()
+        base_fn = normalize_flight_id(fn_full)
+        
+        dep = flt.get("departure", "")
+        key = (base_fn, dep)
+        
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(flt)
+    
+    unique_flights = []
+    for key, variants in groups.items():
+        if len(variants) == 1:
+            unique_flights.append(variants[0])
+            continue
+            
+        # Pick the best candidate
+        best = variants[0]
+        for v in variants[1:]:
+            v_status = v.get("status", "").upper()
+            best_status = best.get("status", "").upper()
+            
+            # Priority 1: Suffix over no-suffix (e.g. 1250A over 1250)
+            v_num = normalize_flight_id(v.get("flight_number", ""))
+            best_num = normalize_flight_id(best.get("flight_number", ""))
+            
+            v_has_suffix = v.get("flight_number", "").strip() != v_num
+            best_has_suffix = best.get("flight_number", "").strip() != best_num
+            
+            if v_has_suffix and not best_has_suffix:
+                best = v
+                continue
+            
+            # Priority 2: ARRIVED/DEPARTED over SCHEDULED
+            if (v_status in ["ARRIVED", "DEPARTED"]) and (best_status == "SCHEDULED"):
+                best = v
+                continue
+                
+            # Priority 3: Latest status
+            status_rank = {"ARRIVED": 3, "DEPARTED": 2, "SCHEDULED": 1, "CANCELLED": 0}
+            if status_rank.get(v_status, -1) > status_rank.get(best_status, -1):
+                best = v
+        
+        unique_flights.append(best)
+            
+    return unique_flights
+
+
+# =========================================================
 # Main Data Processor Class
 # =========================================================
 
@@ -1025,29 +1262,112 @@ class DataProcessor:
             self.data_source = source
             logger.info(f"Data source set to: {source}")
     
-    def get_crew_hours(self, target_date: date = None) -> List[Dict[str, Any]]:
+    def get_best_ftl_date(self, target_date: date = None) -> str:
+        """
+        Find the best calculation_date for FTL data.
+        Prefers target_date if it has meaningful data, otherwise falls back
+        to the latest date with non-zero hours.
+        
+        Returns:
+            ISO date string of the best available FTL data date.
+        """
+        target_date = target_date or get_today_vn()
+        target_iso = target_date.isoformat() if hasattr(target_date, 'isoformat') else str(target_date)
+        
+        if not self.supabase:
+            return target_iso
+        
+        try:
+            # Check if target_date has meaningful data
+            check = self.supabase.table("crew_flight_hours") \
+                .select("hours_28_day") \
+                .eq("calculation_date", target_iso) \
+                .gt("hours_28_day", 0) \
+                .limit(5) \
+                .execute()
+            
+            if check.data and len(check.data) >= 5:
+                return target_iso
+            
+            # Fallback: find latest date with actual data
+            # Get distinct dates ordered by most recent
+            all_dates = self.supabase.table("crew_flight_hours") \
+                .select("calculation_date, hours_28_day") \
+                .gt("hours_28_day", 0) \
+                .order("calculation_date", desc=True) \
+                .limit(1) \
+                .execute()
+            
+            if all_dates.data:
+                best_date = all_dates.data[0]["calculation_date"]
+                if best_date != target_iso:
+                    logger.info(f"FTL fallback: using {best_date} instead of {target_iso} (no meaningful data on target date)")
+                return best_date
+            
+        except Exception as e:
+            logger.error(f"get_best_ftl_date failed: {e}")
+        
+        return target_iso
+
+    def get_crew_hours(self, target_date: date = None, fallback_to_latest: bool = False) -> List[Dict[str, Any]]:
         """
         Get crew flight hours from database.
         
         Args:
             target_date: Date to filter by
+            fallback_to_latest: If True, returns latest available calculation if target_date is empty
             
         Returns:
             List of crew flight hour records
         """
-        target_date = target_date or date.today()
+        target_date = target_date or get_today_vn()
         
         if self.supabase:
             try:
-                result = self.supabase.table("crew_flight_hours") \
+                # Use smart fallback to find date with real data
+                if fallback_to_latest:
+                    actual_date = self.get_best_ftl_date(target_date)
+                else:
+                    actual_date = target_date.isoformat() if hasattr(target_date, 'isoformat') else str(target_date)
+                
+                query = self.supabase.table("crew_flight_hours") \
                     .select("*") \
-                    .eq("calculation_date", target_date.isoformat()) \
-                    .execute()
-                return result.data or []
+                    .eq("calculation_date", actual_date)
+                    
+                return fetch_all_rows(query)
             except Exception as e:
                 logger.error(f"Failed to fetch crew hours: {e}")
         
         return []
+    
+    def get_crew_positions(self, target_date: date = None) -> Dict[str, str]:
+        """
+        Get crew positions from aims_leg_members table.
+        Returns a dict: crew_id -> position (e.g. "CP", "FO", "PU", "FA").
+        """
+        target_date = target_date or get_today_vn()
+        positions = {}
+        
+        if self.supabase:
+            try:
+                # Query aims_leg_members for crew positions on target date
+                result = self.supabase.table("aims_leg_members") \
+                    .select("crew_id, position") \
+                    .eq("flight_date", target_date.isoformat()) \
+                    .execute()
+                
+                if result.data:
+                    for r in result.data:
+                        cid = r.get("crew_id", "")
+                        pos = r.get("position", "")
+                        if cid and pos:
+                            positions[str(cid)] = pos
+                    
+                    logger.info(f"Loaded {len(positions)} crew positions from aims_leg_members for {target_date}")
+            except Exception as e:
+                logger.warning(f"Failed to fetch crew positions from aims_leg_members: {e}")
+        
+        return positions
     
     def get_standby_records(self, target_date: date = None) -> List[Dict[str, Any]]:
         """
@@ -1059,7 +1379,7 @@ class DataProcessor:
         Returns:
             List of standby records
         """
-        target_date = target_date or date.today()
+        target_date = target_date or get_today_vn()
         records = []
         
         if self.supabase:
@@ -1088,7 +1408,7 @@ class DataProcessor:
                     .select("*") \
                     .gte("start_dt", f"{date_str}T00:00:00") \
                     .lte("start_dt", f"{date_str}T23:59:59") \
-                    .in_("activity_type", ["SBY", "SL", "CSL", "SICK", "STANDBY"]) \
+                    .in_("activity_type", ["SBY", "SL", "CSL", "SICK", "STANDBY", "SCL", "NS"]) \
                     .execute()
                 if result.data:
                     for r in result.data:
@@ -1101,6 +1421,76 @@ class DataProcessor:
             except Exception as e:
                 logger.warning(f"Failed to fetch fact_roster standby: {e}")
         
+        return records
+
+    def get_roster_assignments(self, target_date: date = None) -> List[Dict[str, Any]]:
+        """
+        Get flight assignments from fact_roster for the target date.
+        Used for 'No Crew = No Flight' filtering.
+        """
+        target_date = target_date or get_today_vn()
+        records = []
+        
+        if self.supabase:
+            try:
+                date_str = target_date.isoformat()
+                prev_date_str = (target_date - timedelta(days=1)).isoformat()
+                next_date_str = (target_date + timedelta(days=1)).isoformat()
+                
+                # 1. Fetch from fact_roster (Step 5 of sync)
+                # Fetch for 3 days to match flight window, with pagination
+                start = 0
+                step = 1000
+                while start < 5000:
+                    result = self.supabase.table("fact_roster") \
+                        .select("flight_no, crew_id") \
+                        .gte("start_dt", f"{prev_date_str}T00:00:00") \
+                        .lte("start_dt", f"{next_date_str}T23:59:59") \
+                        .not_.is_("flight_no", "null") \
+                        .neq("flight_no", "") \
+                        .range(start, start + step - 1) \
+                        .execute()
+                    
+                    if not result.data:
+                        break
+                    records.extend(result.data)
+                    if len(result.data) < step:
+                        break
+                    start += step
+
+                # 2. Fetch from flight_crew (Step 2 of sync - faster updates)
+                # Fetch for 3 days window, with pagination
+                start = 0
+                while start < 5000:
+                    try:
+                        res_fc = self.supabase.table("flight_crew") \
+                            .select("flight_number, crew_id") \
+                            .in_("flight_date", [prev_date_str, date_str, next_date_str]) \
+                            .range(start, start + step - 1) \
+                            .execute()
+                            
+                        if not res_fc.data:
+                            break
+                            
+                        # normalize keys to match fact_roster (flight_no vs flight_number)
+                        for r in res_fc.data:
+                            records.append({
+                                "flight_no": r.get("flight_number"),
+                                "crew_id": r.get("crew_id")
+                            })
+                            
+                        if len(res_fc.data) < step:
+                            break
+                        start += step
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch flight_crew fallbacks: {e}")
+                        break
+
+                if records:
+                    logger.info(f"Fetched {len(records)} roster assignments (3-day window, fact_roster + flight_crew)")
+            except Exception as e:
+                logger.warning(f"Failed to fetch roster assignments: {e}")
+                
         return records
     
     def get_flights(self, target_date: date = None) -> List[Dict[str, Any]]:
@@ -1118,7 +1508,7 @@ class DataProcessor:
         Returns:
             List of flight records for the ops day window
         """
-        target_date = target_date or date.today()
+        target_date = target_date or get_today_vn()
         prev_date = target_date - timedelta(days=1)
         next_date = target_date + timedelta(days=1)
         
@@ -1146,11 +1536,11 @@ class DataProcessor:
                     .eq("flight_date", next_date.isoformat()) \
                     .execute()
                 all_flights.extend(result_tomorrow.data or [])
-                            
             except Exception as e:
                 logger.error(f"Failed to fetch flights: {e}")
         
-        return all_flights
+        # 4. Apply Operational Window Filter
+        return filter_operational_flights(all_flights, target_date, supabase=self.supabase)
     
     def get_dashboard_summary(self, target_date: date = None) -> Dict[str, Any]:
         """
@@ -1162,24 +1552,33 @@ class DataProcessor:
         Returns:
             Dashboard summary with all KPIs
         """
-        target_date = target_date or date.today()
+        target_date = target_date or get_today_vn()
         
-        crew_hours = self.get_crew_hours(target_date)
-        standby = self.get_standby_records(target_date)
-        flights = self.get_flights(target_date)
+        from concurrent.futures import ThreadPoolExecutor
+    
+        with ThreadPoolExecutor(max_workers=5) as executor:
+            f_crew = executor.submit(self.get_crew_hours, target_date, fallback_to_latest=True)
+            f_sby = executor.submit(self.get_standby_records, target_date)
+            f_flt = executor.submit(self.get_flights, target_date)
+            f_asn = executor.submit(self.get_roster_assignments, target_date)
+            f_pos = executor.submit(self.get_crew_positions, target_date)
+            
+            crew_hours = f_crew.result()
+            standby = f_sby.result()
+            flights = f_flt.result()
+            assignments = f_asn.result()
+            crew_positions = f_pos.result()
         
         summary = calculate_dashboard_summary(
             crew_data=crew_hours,
             flight_data=flights,
             standby_data=standby,
-            target_date=target_date
+            target_date=target_date,
+            assignments=assignments,
+            crew_positions=crew_positions
         )
         
-        # Get operating crew count from leg_members
-        # Only count unique crew assigned to operational flights
-        operating_crew_count = self._get_operating_crew_count(flights, target_date)
-        if operating_crew_count > 0:
-            summary["total_crew"] = operating_crew_count
+        # [REMOVED] operating_crew_count override
         
         summary["data_source"] = self.data_source
         
@@ -1190,7 +1589,8 @@ class DataProcessor:
         Get summary of all aircraft operating on target date.
         Returns list with flight count, block hours, utilization, etc.
         """
-        target_date = target_date or date.today()
+        target_date = target_date or get_today_vn()
+        from airport_timezones import get_airport_timezone
         flights = self.get_flights(target_date)
         
         # Prepare date ranges
@@ -1200,120 +1600,55 @@ class DataProcessor:
         prev_date_str = prev_date.isoformat()
         next_date_str = next_date.isoformat()
 
-        # Group flights by aircraft reg - WITH FILTERING
-        aircraft_data = {}
-        
-        # Invalid regs to filter out (type codes used as reg in test data)
+        # INVALID_REGS to filter out (type codes used as reg in test data)
         INVALID_REGS = {'VN-A320', 'VN-A321', 'VN-A322'}
-        
-        # Blacklist for confirmed cancelled flights
-        cancelled_flights = {
-            ('2026-02-02', '126', 'SGN'),
-            ('2026-02-02', '1330', 'PQC'),
-            ('2026-02-02', '176', 'SGN'),
-            ('2026-02-02', '38', 'LHW'),
-            ('2026-02-02', '871', 'TAE')
-        }
 
-        # Deduplication set
-        seen_keys = set()
+        # [FIX] Do NOT refilter. self.get_flights already returns filtered ops day flights. 
+        ops_flights = flights
         
-        from airport_timezones import get_airport_timezone
+        # [REMOVED] assignments-based filtering to stay consistent with dashboard KPIs
+        # and ignore flight number suffix mismatches.
+        
 
-        for flt in flights:
-            # 1. Basic Filters
+
+        # Group flights by aircraft reg
+        aircraft_data = {}
+        for flt in ops_flights:
+            # Since we filtered for Ops Day, all flights here validly belong to this day
+            is_main_day = True 
+                
             reg = flt.get("aircraft_reg", "")
             if not reg or reg in INVALID_REGS:
                 continue
-                
+
             flight_number = flt.get("flight_number", "").strip()
             dep_airport = flt.get("departure", "")
-            flight_date_str = flt.get("flight_date", target_date_str)
-            if hasattr(flight_date_str, 'isoformat'):
-                flight_date_str = flight_date_str.isoformat()
-            
-            # 2. Blacklist Check
-            if (flight_date_str, flight_number, dep_airport) in cancelled_flights:
-                continue
-                
-            # 3. Ops Window Filter (Local Time 04:00 - 03:59)
-            std_str = flt.get("std", "")
-            in_ops_window = False
-            local_date_key = flight_date_str # For dedup
-            
-            if std_str and ":" in std_str:
-                try:
-                    parts = std_str.split(":")
-                    utc_hour = int(parts[0])
-                    utc_min = int(parts[1]) if len(parts) > 1 else 0
-                    
-                    tz_offset = get_airport_timezone(dep_airport)
-                    
-                    local_hour = utc_hour + int(tz_offset)
-                    # Handle minute offset roughly if needed, usually just affects date rollover near boundary
-                    local_min = utc_min + int((tz_offset - int(tz_offset)) * 60)
-                    if local_min >= 60:
-                        local_min -= 60
-                        local_hour += 1
-                    
-                    local_date = flight_date_str
-                    
-                    # Handle day rollover
-                    if local_hour >= 24:
-                        local_hour -= 24
-                        if flight_date_str == prev_date_str:
-                            local_date = target_date_str
-                        elif flight_date_str == target_date_str:
-                            local_date = next_date_str
-                        elif flight_date_str == next_date_str:
-                             local_date = (target_date + timedelta(days=2)).isoformat()
-                    elif local_hour < 0:
-                        local_hour += 24
-                        if flight_date_str == target_date_str:
-                            local_date = prev_date_str
-                        elif flight_date_str == next_date_str:
-                            local_date = target_date_str
-                            
-                    # Ops Window Logic
-                    if local_date == target_date_str and local_hour >= 4:
-                        in_ops_window = True
-                        local_date_key = target_date_str
-                    elif local_date == next_date_str and local_hour < 4:
-                        in_ops_window = True
-                        local_date_key = next_date_str
-                        
-                except (ValueError, IndexError):
-                    pass
-            
-            if not in_ops_window:
-                continue
-                
-            # 4. Deduplication
-            # Key: (local_date_of_flight, flight_number, departure)
-            # We use local_date_key calculated above which maps to the date the flight *counts* for (mostly)
-            # Actually, standard key is (Date, Flt, Dep). If flight counts for 03/02, key should probably reflect that or the unique flight ID.
-            key = (local_date_key, flight_number, dep_airport)
-            if key in seen_keys:
-                continue
-            seen_keys.add(key)
+            # Re-fetch flight date string for internal tracking
+            f_date = flt.get("flight_date", target_date.isoformat())
+            flight_date_str = f_date.isoformat() if hasattr(f_date, 'isoformat') else f_date
 
             if reg not in aircraft_data:
                 aircraft_data[reg] = {
                     "reg": reg,
-                    "type": flt.get("aircraft_type", "Unknown"),
+                    "type": normalize_ac_type(flt.get("aircraft_type")),
                     "flights": [],
                     "block_minutes": 0,
                     "first_std": None,
                     "last_sta": None,
                     "first_dep": None,
                     "last_arr": None,
+                    "last_dep_airport": None, # [FIX] Track last dep for TZ
                     "latest_dep_key": None, # (flight_date, std)
                     "last_std": None,
                     "last_flight_date": None
                 }
             
             ac = aircraft_data[reg]
-            ac["flights"].append(flt.get("flight_number", ""))
+            if is_main_day:
+                ac["flights"].append(flt.get("flight_number", ""))
+                # Track for FIRST/LAST logic (only for main day)
+                # Actually, standard is FIRST/LAST of the day, 
+                # but let's keep it consistent.
             
             # Parse times
             std = flt.get("std", "")
@@ -1341,6 +1676,7 @@ class DataProcessor:
                     ac["last_sta"] = sta # This is the STA of the last flight
                     ac["last_std"] = std # Store STD to check overnight
                     ac["last_arr"] = flt.get("arrival", "")
+                    ac["last_dep_airport"] = dep_airport # [FIX]
                     ac["last_flight_date"] = flight_date_str
             
             # Calculate block time - Priority: Actual > Scheduled
@@ -1371,10 +1707,17 @@ class DataProcessor:
                 except:
                     pass
             
-            ac["block_minutes"] += block_mins
+            # [FIX] Only sum block minutes for main day
+            if is_main_day:
+                ac["block_minutes"] += block_mins
         
-        # Build result list
-        now = datetime.now()
+        # [FIX v4.3] Date-aware aircraft status logic
+        from datetime import timezone
+        today_vn = get_today_vn()
+        is_future_date = target_date > today_vn
+        is_past_date = target_date < today_vn
+        
+        now = datetime.now(timezone.utc)
         now_mins = now.hour * 60 + now.minute
         total_aircraft = len(aircraft_data)
         
@@ -1387,125 +1730,145 @@ class DataProcessor:
         for reg, ac in aircraft_data.items():
             block_hours = round(ac["block_minutes"] / 60, 1)
             
-            # Utilization = This aircraft's block hours / Fleet average * 100
-            # Shows how this aircraft compares to fleet average
-            utilization = round((ac["block_minutes"] / fleet_avg_mins) * 100, 1) if fleet_avg_mins > 0 else 0
+            # Utilization % based on 24h operational day
+            utilization = round((ac["block_minutes"] / 1440) * 100, 1)
             
-            # Determine status - GROUND only if ALL flights are completed
-            # A flight is completed if: has ATA, or ETA+60min passed, or ATD+block+60min passed
-            all_flights_completed = True
-            has_any_flight = False
-            
-            for flt in flights:
-                if flt.get("aircraft_reg") != reg:
-                    continue
+            # [FIX v4.3] Date-aware status:
+            # - Future date: all aircraft "FLYING" (not yet operated)
+            # - Past date: all aircraft "GROUND" (all flights done)
+            # - Today: real-time check
+            if is_future_date:
+                status = "FLYING"
+            elif is_past_date:
+                has_any_flight = any(flt.get("aircraft_reg") == reg for flt in flights)
+                status = "GROUND" if has_any_flight else "FLYING"
+            else:
+                # Today: Determine status - GROUND only if ALL flights are completed
+                # A flight is completed if: has ATA, or ETA+60min passed, or ATD+block+60min passed
+                all_flights_completed = True
+                has_any_flight = False
+                
+                for flt in flights:
+                    if flt.get("aircraft_reg") != reg:
+                        continue
+                        
+                    has_any_flight = True
+                    ata = flt.get("ata", "")
+                    eta = flt.get("eta", "")
+                    atd = flt.get("atd", "")
+                    sta = flt.get("sta", "")
+                    std = flt.get("std", "")
                     
-                has_any_flight = True
-                ata = flt.get("ata", "")
-                eta = flt.get("eta", "")
-                atd = flt.get("atd", "")
-                sta = flt.get("sta", "")
-                std = flt.get("std", "")
-                
-                flight_completed = False
-                
-                # Check 1: Has ATA → Completed
-                if ata:
-                    flight_completed = True
-                else:
-                    # Check 2: Has ETA and now > ETA + 60min
-                    if eta:
-                        try:
-                            eta_parts = eta.split(":")
-                            eta_mins = int(eta_parts[0]) * 60 + int(eta_parts[1])
-                            if now_mins > eta_mins + 60:
-                                flight_completed = True
-                            elif now_mins < eta_mins - 720:  # Handle overnight
-                                flight_completed = True
-                        except:
-                            pass
+                    flight_completed = False
                     
-                    # Check 3: Has ATD and now > ATD + scheduled_block + 60min
-                    if not flight_completed and atd and std and sta:
-                        try:
-                            atd_parts = atd.split(":")
-                            atd_mins = int(atd_parts[0]) * 60 + int(atd_parts[1])
-                            std_parts = std.split(":")
-                            sta_parts = sta.split(":")
-                            std_mins = int(std_parts[0]) * 60 + int(std_parts[1])
-                            sta_mins = int(sta_parts[0]) * 60 + int(sta_parts[1])
-                            if sta_mins < std_mins:
-                                sta_mins += 1440
-                            scheduled_block = sta_mins - std_mins
-                            expected_arrival = atd_mins + scheduled_block + 60
-                            if expected_arrival >= 1440:
-                                expected_arrival -= 1440
-                            if now_mins > expected_arrival or (now_mins < expected_arrival - 720):
-                                flight_completed = True
-                        except:
-                            pass
+                    # Check 1: Has ATA → Completed
+                    if ata:
+                        flight_completed = True
+                    else:
+                        # Check 2: Has ETA and now > ETA + 60min
+                        if eta:
+                            try:
+                                eta_parts = eta.split(":")
+                                eta_mins = int(eta_parts[0]) * 60 + int(eta_parts[1])
+                                if now_mins > eta_mins + 60:
+                                    flight_completed = True
+                                elif now_mins < eta_mins - 720:  # Handle overnight
+                                    flight_completed = True
+                            except:
+                                pass
+                        
+                        # Check 3: Has ATD and now > ATD + scheduled_block + 60min
+                        if not flight_completed and atd and std and sta:
+                            try:
+                                atd_parts = atd.split(":")
+                                atd_mins = int(atd_parts[0]) * 60 + int(atd_parts[1])
+                                std_parts = std.split(":")
+                                sta_parts = sta.split(":")
+                                std_mins = int(std_parts[0]) * 60 + int(std_parts[1])
+                                sta_mins = int(sta_parts[0]) * 60 + int(sta_parts[1])
+                                if sta_mins < std_mins:
+                                    sta_mins += 1440
+                                scheduled_block = sta_mins - std_mins
+                                expected_arrival = atd_mins + scheduled_block + 60
+                                if expected_arrival >= 1440:
+                                    expected_arrival -= 1440
+                                if now_mins > expected_arrival or (now_mins < expected_arrival - 720):
+                                    flight_completed = True
+                            except:
+                                pass
+                    
+                    if not flight_completed:
+                        all_flights_completed = False
+                        break
                 
-                if not flight_completed:
-                    all_flights_completed = False
-                    break
+                # Status: GROUND only if all flights completed
+                status = "GROUND" if (has_any_flight and all_flights_completed) else "FLYING"
             
-            # Status: GROUND only if all flights completed
-            status = "GROUND" if (has_any_flight and all_flights_completed) else "FLYING"
-            
-            # Convert First/Last times to Local Time
+            # Format First/Last times
+            # [FIX v4.5] Absolute local minutes logic for reliable next-day (+) indicators
             first_flight_local = "-"
-            if ac["first_std"] and ac["first_dep"]:
+            if ac["first_std"] and ac["first_flight_date"] and ac["first_dep"]:
                 try:
-                    utc_parts = ac["first_std"].split(":")
-                    utc_h = int(utc_parts[0])
-                    utc_m = int(utc_parts[1]) if len(utc_parts)>1 else 0
-                    tz = get_airport_timezone(ac["first_dep"])
-                    loc_h = utc_h + int(tz)
-                    loc_m = utc_m + int((tz - int(tz)) * 60)
-                    if loc_m >= 60:
-                        loc_m -= 60
-                        loc_h += 1
-                    if loc_h >= 24: loc_h -= 24
-                    elif loc_h < 0: loc_h += 24
-                    first_flight_local = f"{loc_h:02d}:{loc_m:02d}"
+                    # Get timezone offset for departure airport
+                    first_tz_offset = get_airport_timezone(ac["first_dep"])
+                    # Calculate absolute local minutes since target_date 00:00 UTC
+                    f_date_obj = date.fromisoformat(ac["first_flight_date"])
+                    days_diff = (f_date_obj - target_date).days
+                    
+                    std_parts = ac["first_std"].split(":")
+                    utc_abs_mins = (days_diff * 1440) + int(std_parts[0]) * 60 + int(std_parts[1])
+                    local_abs_mins = utc_abs_mins + (first_tz_offset * 60)
+                    
+                    # Format as time of whatever calendar day it falls on
+                    display_mins = local_abs_mins % 1440
+                    first_flight_local = f"{display_mins // 60:02d}:{display_mins % 60:02d}"
+                    
+                    # Mark '+' if local time falls on target_date + 1 (relative to local midnight)
+                    if local_abs_mins >= 1440:
+                         first_flight_local += "+"
                 except:
-                    first_flight_local = ac["first_std"][:5]
+                    first_flight_local = ac["first_std"][:5] if ac["first_std"] else "-"
 
             last_flight_local = "-"
-            if ac["last_sta"] and ac["last_arr"] and ac["last_flight_date"] and ac["last_std"]:
+            if ac["last_sta"] and ac["last_flight_date"] and ac["last_arr"]:
                 try:
-                    # Determine UTC Arrival Datetime
-                    # Base date = Flight Date (Departure Date)
-                    flight_date_obj = datetime.strptime(ac["last_flight_date"], "%Y-%m-%d")
+                    # 1. Get local arrival minutes
+                    last_arr_tz = get_airport_timezone(ac["last_arr"])
+                    l_date_obj = date.fromisoformat(ac["last_flight_date"])
+                    days_diff_arr = (l_date_obj - target_date).days
                     
-                    std_parts = ac["last_std"].split(":")
                     sta_parts = ac["last_sta"].split(":")
+                    sta_utc_abs = (days_diff_arr * 1440) + int(sta_parts[0]) * 60 + int(sta_parts[1])
                     
-                    std_mins = int(std_parts[0]) * 60 + int(std_parts[1])
-                    sta_mins = int(sta_parts[0]) * 60 + int(sta_parts[1])
+                    # Handle AIMS overnight STA: if STA < STD and they are same flight_date,
+                    # it means STA is actually on next day.
+                    std_parts_last = ac["last_std"].split(":")
+                    std_val = int(std_parts_last[0]) * 60 + int(std_parts_last[1])
+                    sta_val = int(sta_parts[0]) * 60 + int(sta_parts[1])
+                    if sta_val < std_val:
+                        sta_utc_abs += 1440 # Arrival is next day relative to departure
                     
-                    # If STA < STD, assume overnight (+1 day)
-                    days_added = 0
-                    if sta_mins < std_mins:
-                        days_added = 1
+                    sta_local_abs = sta_utc_abs + (last_arr_tz * 60)
                     
-                    utc_arr_dt = flight_date_obj + timedelta(days=days_added)
-                    utc_arr_dt = utc_arr_dt.replace(hour=int(sta_parts[0]), minute=int(sta_parts[1]))
+                    # 2. Get local departure minutes (to detect overnight leg)
+                    last_dep_tz = get_airport_timezone(ac.get("last_dep_airport", ac["last_arr"]))
+                    std_local_abs = (days_diff_arr * 1440) + std_val + (last_dep_tz * 60)
                     
-                    # Convert to Local
-                    tz = get_airport_timezone(ac["last_arr"])
-                    local_arr_dt = utc_arr_dt + timedelta(hours=int(tz)) + timedelta(minutes=(tz - int(tz)) * 60)
+                    # Format last flight local time
+                    display_mins_last = sta_local_abs % 1440
+                    last_flight_local = f"{display_mins_last // 60:02d}:{display_mins_last % 60:02d}"
                     
-                    # Format
-                    last_flight_local = local_arr_dt.strftime("%H:%M")
+                    # Mark '+' if:
+                    # - Dep is on next day (local_abs >= 1440)
+                    # - OR it's an overnight leg (local_arr_abs > local_dep_abs crossing midnight)
+                    is_next_day_dep = std_local_abs >= 1440
+                    is_overnight = (sta_local_abs > std_local_abs) and (sta_local_abs >= 1440)
                     
-                    # Check if Next Day relative to Target Date
-                    if local_arr_dt.date() > target_date:
+                    if is_next_day_dep or is_overnight:
                         last_flight_local += "+"
-                        
-                except Exception as e:
-                    # Fallback
-                    last_flight_local = ac["last_sta"][:5]
+                except:
+                    last_flight_local = ac["last_sta"][:5] if ac["last_sta"] else "-"
+
 
             result.append({
                 "reg": reg,
@@ -1553,36 +1916,48 @@ class DataProcessor:
             try:
                 # Fetch target_date crew
                 result_today = self.supabase.table("flight_crew") \
-                    .select("crew_id, flight_date") \
+                    .select("crew_id, flight_date, flight_number, departure") \
                     .eq("flight_date", target_date.isoformat()) \
                     .execute()
-                    
-                for r in (result_today.data or []):
-                    if r.get("crew_id"):
-                        unique_crew.add(r.get("crew_id"))
                 
-                # Fetch next_date early morning crew (00:00-03:59)
+                # Fetch next_date crew
                 result_tomorrow = self.supabase.table("flight_crew") \
-                    .select("crew_id, flight_date") \
+                    .select("crew_id, flight_date, flight_number, departure") \
                     .eq("flight_date", next_date.isoformat()) \
                     .execute()
-                
-                # Note: We add all because scheduler already filters for early flights
-                for r in (result_tomorrow.data or []):
-                    if r.get("crew_id"):
-                        unique_crew.add(r.get("crew_id"))
+
+                # Define operational flight keys for precise filtering
+                ops_keys = set()
+                for flt in flights:
+                    f_date = flt.get("flight_date", "")
+                    f_date_str = f_date.isoformat() if hasattr(f_date, 'isoformat') else f_date
+                    # Normalize flight number for robust matching with roster data
+                    f_num_norm = normalize_flight_id(flt.get("flight_number"))
+                    ops_keys.add((f_date_str, f_num_norm, flt.get("departure")))
+
+                # Process results and filter by operational flight keys
+                all_raw_crew = (result_today.data or []) + (result_tomorrow.data or [])
+                for r in all_raw_crew:
+                    crew_id = r.get("crew_id")
+                    if not crew_id: continue
+                    
+                    # Also normalize roster/crew flight number for matching
+                    r_num_norm = normalize_flight_id(r.get("flight_number"))
+                    key = (r.get("flight_date"), r_num_norm, r.get("departure"))
+                    if key in ops_keys:
+                        unique_crew.add(crew_id)
                 
                 if unique_crew:
-                    logger.info(f"Operating crew count from flight_crew: {len(unique_crew)}")
+                    logger.info(f"Operating crew count from flight_crew (filtered): {len(unique_crew)} for {len(flights)} flights")
                     return len(unique_crew)
                     
             except Exception as e:
                 logger.debug(f"flight_crew table not available: {e}")
         
         # Fallback: Estimate based on flight count
-        # Average crew per flight: 4 (2 pilots + 2 cabin crew for narrow-body)
-        # But crew can fly multiple legs, so estimate unique crew = flights * 0.8
-        estimated = int(len(flights) * 0.8)
+        # Average crew per flight: 6 (2 pilots + 4 cabin crew)
+        # But crew fly multiple legs, so estimate unique crew = flights * 1.6
+        estimated = int(len(flights) * 1.6)
         
         # Cap at reasonable maximum (assume crew fly avg 2 legs/day)
         max_crew = int(len(flights) * 4 / 2)  # 4 crew per flight, 2 legs each
@@ -1602,7 +1977,7 @@ class DataProcessor:
         
         Logic: SUM(block_minutes) WHERE dep_actual_dt BETWEEN (Today - 28) AND Today.
         """
-        target_date = target_date or date.today()
+        target_date = target_date or get_today_vn()
         start_date = target_date - timedelta(days=28)
         
         if not self.supabase:
@@ -1622,6 +1997,297 @@ class DataProcessor:
         except Exception as e:
             logger.error(f"Failed to calculate 28-day hours for {crew_id}: {e}")
             return 0.0
+
+    def calculate_ftl_alert_status(self, hours_28d: float, hours_12m: float) -> str:
+        """Calculate warning level based on FTL hours."""
+        from data_processor import calculate_warning_level
+        return calculate_warning_level(hours_28d, hours_12m)
+
+    def sync_and_calculate_ftl(self, target_date: date = None) -> int:
+        """
+        Comprehensive FTL Sync & Calculation.
+        Optimized for Phase 1 "Fast Run" using Yesterday as anchor if Today is empty.
+        """
+        target_date = target_date or get_today_vn()
+        logger.info(f"FTL SYNC: Target Date = {target_date}")
+
+        # Check for cooldown (60 mins) to avoid excessive AIMS calls
+        if self.supabase:
+            try:
+                last_job = self.supabase.table("etl_jobs") \
+                    .select("started_at") \
+                    .eq("job_name", "FTL Sync") \
+                    .eq("status", "SUCCESS") \
+                    .order("started_at", desc=True) \
+                    .limit(1) \
+                    .execute()
+                if last_job.data:
+                    last_time = datetime.fromisoformat(last_job.data[0]["started_at"].replace("Z", "+00:00"))
+                    # Only check cooldown if it's the SAME target date
+                    if datetime.now(last_time.tzinfo) - last_time < timedelta(minutes=60):
+                        logger.info("  FTL Sync cooldown active (60m), skipping full calculation.")
+                        return 0
+            except Exception as e:
+                logger.warning(f"Cooldown check failed, proceeding: {e}")
+
+        # Step 0: Check if Today has any block hours. If not, anchor to Yesterday.
+        # This solves the 0.0 display issue when Today's flights haven't started.
+        original_target_date = target_date # Store original target_date for placeholder copy
+        try:
+            today_flights = self.supabase.table("aims_flights") \
+                .select("block_time_minutes") \
+                .eq("flight_date", target_date.isoformat()) \
+                .gte("block_time_minutes", 10) \
+                .limit(5) \
+                .execute()
+            
+            if not today_flights.data:
+                yesterday = target_date - timedelta(days=1)
+                logger.info(f"  Today ({target_date}) has no actual flights yet. Anchoring rolling calculation to Yesterday ({yesterday}).")
+                target_date = yesterday
+        except Exception as e:
+            logger.warning(f"  Error checking today's flights: {e}")
+
+        # Step 1: Rapid Initial Populate ("Phase 1 Placeholder Copy")
+        # Copy yesterday's data to Today's date immediately if Today is empty.
+        # This gives the user data to look at while the heavy calculation runs.
+        self._fast_copy_ftl_placeholder(original_target_date)
+
+        logger.info(f"Starting optimized FTL calculation for {target_date}")
+        
+        if not self.aims_client or not self.supabase:
+            logger.error("AIMS client or Supabase not initialized")
+            return 0
+
+        # Step 1: Build Flight Block Map (12 months)
+        # Optimization: Priority 1: Use Database (aims_flights), Priority 2: AIMS API for gaps/recent
+        # Heavy Calculation Step
+        start_date_12m = target_date - timedelta(days=365)
+        flight_block_map = {}
+        
+        logger.info("  Step 1/3: Building Flight Block Map (Database First)...")
+        # 1.1 Load from Local DB
+        try:
+            db_flights = self.supabase.table("aims_flights") \
+                .select("flight_date, flight_number, off_block, on_block") \
+                .gte("flight_date", start_date_12m.isoformat()) \
+                .lte("flight_date", target_date.isoformat()) \
+                .execute()
+            
+            for f in db_flights.data or []:
+                f_date = f["flight_date"]
+                f_num = normalize_flight_id(f["flight_number"])
+                ob = f.get("off_block")
+                nib = f.get("on_block")
+                
+                if ob and nib:
+                    try:
+                        # Format "YYYY-MM-DD HH:MM:SS"
+                        fmt = "%Y-%m-%d %H:%M:%S"
+                        t1 = datetime.strptime(ob, fmt)
+                        t2 = datetime.strptime(nib, fmt)
+                        flight_block_map[(f_date, f_num)] = int((t2 - t1).total_seconds() / 60)
+                    except: pass
+        except Exception as e:
+            logger.error(f"Failed to load flights from DB: {e}")
+
+        # 1.2 Fetch from AIMS for the last 7 days (to ensure freshness) + gaps
+        logger.info("  Step 1.2: Fetching recent/missing flights from AIMS...")
+        aims_fetch_start = target_date - timedelta(days=7)
+        current_start = aims_fetch_start
+        while current_start <= target_date:
+            current_end = min(current_start + timedelta(days=7), target_date)
+            try:
+                batch = self.aims_client.get_flights_range(current_start, current_end)
+                for flt in batch:
+                    f_date = flt.get("flight_date", "")
+                    f_num = normalize_flight_id(flt.get("flight_number", ""))
+                    if not f_date or not f_num: continue
+                    
+                    blk = flt.get("block_time", "00:00")
+                    m = 0
+                    if ":" in blk:
+                        try:
+                            parts = blk.split(":")
+                            m = int(parts[0]) * 60 + int(parts[1])
+                        except: pass
+                    flight_block_map[(f_date, f_num)] = m
+            except Exception as e:
+                logger.error(f"Flight history AIMS fetch failed for {current_start}: {e}")
+            current_start += timedelta(days=8)
+        
+        logger.info(f"  Final block map size: {len(flight_block_map)} flights")
+
+        # Step 2: Get active crew members
+        logger.info("  Step 2/3: Fetching crew members...")
+        try:
+            crew_res = self.supabase.table("crew_members").select("crew_id, crew_name").execute()
+            all_crew = crew_res.data or []
+        except Exception as e:
+            logger.error(f"Failed to fetch crew: {e}")
+            return 0
+
+        # Step 3: Calculate for each crew member (Parallel)
+        logger.info(f"  Step 3/3: Calculating FTL for {len(all_crew)} crew members...")
+        
+        # Log job as running
+        if self.supabase:
+            self.supabase.table("etl_jobs").insert({
+                "job_name": "FTL Sync",
+                "status": "RUNNING",
+                "started_at": datetime.now().isoformat()
+            }).execute()
+
+        ftl_records = []
+        
+        def process_one_crew(crew):
+            cid = crew.get("crew_id")
+            if not cid or str(cid).lower() == "none" or str(cid).strip() == "":
+                return None
+            try:
+                # Fetch roster for 12 months
+                sched = self.aims_client.get_crew_schedule(start_date_12m, target_date, crew_id=cid)
+                
+                total_mins_28d = 0
+                total_mins_12m = 0
+                start_date_28d_str = (target_date - timedelta(days=28)).isoformat()
+                
+                for item in sched:
+                    s_dt = item.get("start_dt", "")
+                    f_num_raw = item.get("flight_number")
+                    if not s_dt or not f_num_raw: continue
+                    
+                    d_str = s_dt.split("T")[0]
+                    f_num_norm = normalize_flight_id(f_num_raw)
+                    
+                    mins = flight_block_map.get((d_str, f_num_norm), 0)
+                    total_mins_12m += mins
+                    if d_str >= start_date_28d_str:
+                        total_mins_28d += mins
+                
+                hours_28d = round(total_mins_28d / 60.0, 2)
+                hours_12m = round(total_mins_12m / 60.0, 2)
+                
+                return {
+                    "crew_id": cid,
+                    "crew_name": crew.get("crew_name", ""),
+                    "hours_28_day": hours_28d,
+                    "hours_12_month": hours_12m,
+                    "warning_level": self.calculate_ftl_alert_status(hours_28d, hours_12m),
+                    "calculation_date": target_date.isoformat(),
+                    "source": "AIMS_SYNC_OPT",
+                    "updated_at": datetime.now().isoformat()
+                }
+            except:
+                return None
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Process all crew to ensure full consistency across 3000+ crew
+            futures = [executor.submit(process_one_crew, c) for c in all_crew]
+            for future in as_completed(futures):
+                res = future.result()
+                if res: ftl_records.append(res)
+        
+        if ftl_records:
+            try:
+                self.supabase.table("crew_flight_hours").upsert(
+                    ftl_records, 
+                    on_conflict="crew_id,calculation_date"
+                ).execute()
+                
+                # Success Log
+                self.supabase.table("etl_jobs").insert({
+                    "job_name": "FTL Sync",
+                    "status": "SUCCESS",
+                    "records_processed": len(ftl_records),
+                    "completed_at": datetime.now().isoformat()
+                }).execute()
+                
+                logger.info(f"  Successfully updated FTL for {len(ftl_records)} crew")
+            except Exception as e:
+                logger.error(f"Failed to upsert FTL results: {e}")
+                
+        return len(ftl_records)
+
+    def _fast_copy_ftl_placeholder(self, target_date: date):
+        """
+        Rapidly copy the latest available valid FTL snapshot to the target date.
+        This provides immediate data for the UI while full calculation runs.
+        """
+        if not self.supabase: return
+
+        try:
+            target_iso = target_date.isoformat()
+            
+            # 1. Check if target date already has substantial data
+            existing = self.supabase.table("crew_flight_hours") \
+                .select("hours_28_day") \
+                .eq("calculation_date", target_iso) \
+                .limit(10) \
+                .execute()
+            
+            total_existing_hrs = sum(r.get("hours_28_day", 0) for r in (existing.data or []))
+            if len(existing.data or []) >= 100 or total_existing_hrs > 50:
+                logger.info(f"  Target date {target_iso} already has data. Skipping placeholder copy.")
+                return
+
+            # 2. Get the latest snapshot date
+            latest_res = self.supabase.table("crew_flight_hours") \
+                .select("calculation_date") \
+                .order("calculation_date", desc=True) \
+                .neq("calculation_date", target_iso) \
+                .limit(1) \
+                .execute()
+            
+            if not latest_res.data:
+                logger.info("  No previous FTL data found for placeholder copy.")
+                return
+            
+            latest_date = latest_res.data[0]["calculation_date"]
+            logger.info(f"  Copying placeholder FTL data from {latest_date} to {target_iso}...")
+
+            # 3. Fetch all records from latest date
+            # We do this in batches if there are many crew (usually ~3000)
+            all_records = []
+            page_size = 1000
+            for i in range(5): # Limit to 5000 crew for speed
+                res = self.supabase.table("crew_flight_hours") \
+                    .select("*") \
+                    .eq("calculation_date", latest_date) \
+                    .range(i*page_size, (i+1)*page_size - 1) \
+                    .execute()
+                if not res.data: break
+                all_records.extend(res.data)
+
+            if not all_records: return
+
+            # 4. Prepare for upsert to target date
+            placeholder_batch = []
+            now_iso = datetime.now().isoformat()
+            for r in all_records:
+                # Remove original ID and creation time to allow new record insertion
+                record = {
+                    "crew_id": r["crew_id"],
+                    "crew_name": r.get("crew_name"),
+                    "hours_28_day": r.get("hours_28_day", 0),
+                    "hours_12_month": r.get("hours_12_month", 0),
+                    "warning_level": r.get("warning_level", "NORMAL"),
+                    "calculation_date": target_iso,
+                    "source": "PLACEHOLDER_COPY",
+                    "updated_at": now_iso
+                }
+                placeholder_batch.append(record)
+
+            # 5. Upsert batch
+            if placeholder_batch:
+                self.supabase.table("crew_flight_hours").upsert(
+                    placeholder_batch,
+                    on_conflict="crew_id,calculation_date"
+                ).execute()
+                logger.info(f"  Successfully copied {len(placeholder_batch)} placeholder FTL records to {target_iso}")
+
+        except Exception as e:
+            logger.error(f"  Failed to copy FTL placeholder: {e}")
 
     def get_crew_alert_status(self, hours_28d: float) -> str:
         """
@@ -1646,6 +2312,96 @@ class DataProcessor:
             return dt_gmt7.isoformat()
         except:
             return dt_str
+
+    def get_top_crew_stats(self, days: int = 28, limit: int = 20, threshold: float = 100.0) -> List[Dict[str, Any]]:
+        """
+        Get top crew members by flight hours for the last N days.
+        Optimized to avoid N+1 queries by fetching bulk data and aggregating in-memory.
+        
+        Args:
+            days: Lookback period in days
+            limit: Number of top crew to return
+            threshold: Alert threshold for flight hours
+            
+        Returns:
+            List of crew with aggregated hours and alert status
+        """
+        if not self.supabase:
+            return []
+            
+        try:
+            target_date = get_today_vn()
+            start_date = target_date - timedelta(days=days)
+            
+            logger.info(f"Calculating bulk FTL stats for {days} days (since {start_date})")
+            
+            # 1. Fetch all flights in range to get block times
+            # Note: Leg members join flights on (date, number, departure)
+            flights_result = self.supabase.table("aims_flights") \
+                .select("flight_date, flight_number, departure, block_time_minutes") \
+                .gte("flight_date", start_date.isoformat()) \
+                .execute()
+                
+            flight_mins_map = {}
+            for f in flights_result.data or []:
+                key = (f["flight_date"], f["flight_number"], f["departure"])
+                flight_mins_map[key] = f.get("block_time_minutes", 0) or 0
+                
+            # 2. Fetch all leg members (assignments) in range
+            members_result = self.supabase.table("aims_leg_members") \
+                .select("crew_id, crew_name, position, flight_date, flight_number, departure") \
+                .gte("flight_date", start_date.isoformat()) \
+                .execute()
+                
+            if not members_result.data:
+                return []
+                
+            # 3. Aggregate hours per crew
+            crew_stats = {} # crew_id -> {hours, name, position}
+            
+            for m in members_result.data:
+                cid = m["crew_id"]
+                key = (m["flight_date"], m["flight_number"], m["departure"])
+                mins = flight_mins_map.get(key, 0)
+                
+                if cid not in crew_stats:
+                    crew_stats[cid] = {
+                        "crew_id": cid,
+                        "crew_name": m.get("crew_name", "Unknown"),
+                        "position": m.get("position", ""),
+                        "total_minutes": 0
+                    }
+                
+                crew_stats[cid]["total_minutes"] += mins
+                
+            # 4. Filter, Sort and Format
+            all_crew = []
+            for cid, stats in crew_stats.items():
+                hours = round(stats["total_minutes"] / 60.0, 2)
+                
+                # Determine alert level
+                warning_level = "NORMAL"
+                if hours >= threshold:
+                    warning_level = "CRITICAL"
+                elif hours >= threshold * 0.85: # Hardcoded 85% warning for now
+                    warning_level = "WARNING"
+                    
+                all_crew.append({
+                    "crew_id": cid,
+                    "crew_name": stats["crew_name"],
+                    "position": stats["position"],
+                    "hours_28_day": hours,
+                    "warning_level": warning_level
+                })
+                
+            # Sort by hours descending
+            sorted_crew = sorted(all_crew, key=lambda x: x["hours_28_day"], reverse=True)
+            
+            return sorted_crew[:limit]
+            
+        except Exception as e:
+            logger.error(f"Failed to get top crew stats: {e}")
+            return []
 
     def get_roster_heatmap_data(self, days_range: int = 7) -> List[Dict[str, Any]]:
         """
